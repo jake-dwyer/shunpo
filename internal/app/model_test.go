@@ -1,6 +1,7 @@
 package app
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -44,8 +45,8 @@ func TestWordsStartingWithMenuLettersAndDigitsTypeNormally(t *testing.T) {
 	// "the" and "was" start with letters that double as menu commands
 	// ('t'/'w') when the settings palette is open; outside the palette
 	// they must just type. Also make sure a raw digit types fine.
-	m := New(WordsConfig(2))
-	m.targetWords = []string{"the", "was"}
+	m := New(WordsConfig(3))
+	m.targetWords = []string{"the", "was", "end"}
 
 	m = typeString(m, "the was")
 
@@ -171,8 +172,8 @@ func TestMenuPresetSelectionAppliesAndCloses(t *testing.T) {
 }
 
 func TestMenuKeysDoNotLeakIntoTypingWhenClosed(t *testing.T) {
-	m := New(WordsConfig(1))
-	m.targetWords = []string{"twelve"}
+	m := New(WordsConfig(2))
+	m.targetWords = []string{"twelve", "end"}
 
 	m = typeString(m, "twelve")
 
@@ -219,8 +220,75 @@ func TestTabOnResultsScreenRestartsImmediately(t *testing.T) {
 func TestViewWordsWraps(t *testing.T) {
 	m := New(TimeConfig(30))
 	m.width = 80
-	out := m.viewWords()
+	out := m.viewWords(m.styles())
 	if out == "" {
 		t.Fatal("expected non-empty rendered words")
 	}
+}
+
+func TestFinishesOnLastWordWithoutTrailingSpace(t *testing.T) {
+	m := New(WordsConfig(2))
+	m.targetWords = []string{"the", "of"}
+
+	m = typeString(m, "the o")
+	if m.state != stateReady && m.state != stateTyping {
+		t.Fatalf("expected test still running after first word + partial last word, got %v", m.state)
+	}
+
+	m = typeString(m, "f")
+	if m.state != stateDone {
+		t.Fatalf("expected stateDone immediately once the last word reaches full length, got %v", m.state)
+	}
+	if m.result.WPM <= 0 {
+		t.Fatalf("expected positive WPM, got %v", m.result.WPM)
+	}
+}
+
+func TestThemeCycleWithinMenu(t *testing.T) {
+	m := New(TimeConfig(30))
+	m = send(m, tea.KeyMsg{Type: tea.KeyTab}) // open palette
+	start := m.themeIdx
+
+	m = send(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+
+	if m.themeIdx == start && len(themes) > 1 {
+		t.Fatal("expected theme index to advance after pressing c in the palette")
+	}
+	if !m.menuFocused {
+		t.Fatal("theme cycling should not close the palette")
+	}
+}
+
+func TestNoDoubleSpaceAfterWordCompletion(t *testing.T) {
+	// Regression: the separator after a fully-typed current word used to
+	// be rendered twice (once as an inline cursor block, once as a plain
+	// space), shifting every following word over by one column.
+	m := New(WordsConfig(3))
+	m.width = 80
+	m.targetWords = []string{"the", "of", "and"}
+	m = typeString(m, "the")
+
+	out := m.viewWords(m.styles())
+	if strings.Contains(stripANSI(out), "  ") {
+		t.Fatalf("expected no double space in rendered words, got %q", stripANSI(out))
+	}
+}
+
+func stripANSI(s string) string {
+	var b strings.Builder
+	inEsc := false
+	for _, r := range s {
+		if r == '\x1b' {
+			inEsc = true
+			continue
+		}
+		if inEsc {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+				inEsc = false
+			}
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }

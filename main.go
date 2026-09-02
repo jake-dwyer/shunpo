@@ -13,6 +13,7 @@ import (
 func main() {
 	timeFlag := flag.Int("time", 30, "test duration in seconds (ignored if -words is set)")
 	wordsFlag := flag.Int("words", 0, "number of words per test (overrides -time)")
+	themeFlag := flag.String("theme", "serika", "color theme (serika, dracula, nord, gruvbox, monokai, tokyonight, catppuccin, solarized)")
 	flag.Parse()
 
 	var cfg app.Config
@@ -21,6 +22,7 @@ func main() {
 	} else {
 		cfg = app.TimeConfig(*timeFlag)
 	}
+	cfg.Theme = *themeFlag
 
 	p := tea.NewProgram(app.New(cfg), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {

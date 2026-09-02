@@ -23,18 +23,30 @@ go build -o clackity .
 ## Usage
 
 ```
-clackity                # 30 second test (default)
-clackity -time 60       # 60 second test
-clackity -words 50      # 50 word test
+clackity                    # 30 second test (default)
+clackity -time 60           # 60 second test
+clackity -words 50          # 50 word test
+clackity -theme dracula     # start with a specific theme
 ```
 
 While typing:
 
 - Just type — words are colored as you go (correct/incorrect), extra characters are underlined.
-- `esc` / `ctrl+c` — quit
-- `tab` — restart with a fresh set of words (same mode/settings)
+- Word mode finishes the instant the last word reaches full length — no need to hit space after it.
+- `esc` — quit (or close the settings palette, if it's open) · `ctrl+c` — quit, always
+- `enter` — restart with a fresh set of words (same settings)
+- `tab` — open the settings palette (or, from the results screen, restart immediately)
 
-Mode and duration/word-count are set via flags rather than in-app hotkeys — a "press `1`-`4`/`t`/`w` to change settings" scheme would hijack real keystrokes any time a word in the test happens to start with one of those characters.
+### Settings palette (`tab`)
+
+Everything is keyboard-driven — no mouse required. With the palette open:
+
+- `t` / `w` — switch between time mode and word-count mode
+- `1`-`5` — pick a preset for whichever mode is active
+- `c` — cycle color theme (serika, dracula, nord, gruvbox, monokai, tokyonight, catppuccin, solarized)
+- `enter` / `esc` / `tab` — close the palette
+
+Settings apply immediately as you change them, so you can keep adjusting before closing the palette. This all lives behind an explicit `tab` press rather than always-on hotkeys — letting `1`-`5`/`t`/`w` mean something while you're mid-word would hijack real keystrokes any time a test word happens to start with one of those characters.
 
 ## Stats
 

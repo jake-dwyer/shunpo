@@ -43,6 +43,7 @@ type Config struct {
 	Mode     testMode
 	Seconds  int
 	WordGoal int
+	Theme    string
 }
 
 func TimeConfig(seconds int) Config { return Config{Mode: modeTime, Seconds: seconds} }
@@ -56,6 +57,7 @@ type Model struct {
 	// the user has picked a preset there.
 	timeIdx  int
 	wordsIdx int
+	themeIdx int
 
 	// menuFocused gates the settings palette. While true, every keystroke
 	// is a palette command (preset digit, mode letter, close). While
@@ -86,6 +88,7 @@ func New(cfg Config) Model {
 		cfg:      cfg,
 		timeIdx:  nearestIndex(timePresets, cfg.Seconds, 2),
 		wordsIdx: nearestIndex(wordPresets, cfg.WordGoal, 1),
+		themeIdx: themeIndexByName(cfg.Theme),
 	}
 	m.reset()
 	return m
@@ -101,7 +104,11 @@ func nearestIndex(presets []int, val, def int) int {
 }
 
 func (m *Model) reset() {
-	n := 200
+	// Time mode has no natural end to the word list, so it needs enough
+	// words that even a very fast typist won't run out before the timer
+	// does. ~6 chars/word average and a generous WPM ceiling of 300 over
+	// the longest test (120s) is ~600 words; 800 leaves headroom.
+	n := 800
 	if m.cfg.Mode == modeWords {
 		n = m.cfg.WordGoal
 	}
@@ -204,6 +211,8 @@ func (m Model) handleMenuKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cfg.Mode = modeWords
 		m.cfg.WordGoal = wordPresets[m.wordsIdx]
 		m.reset()
+	case 'c':
+		m.themeIdx = (m.themeIdx + 1) % len(themes)
 	case '1', '2', '3', '4', '5':
 		idx := int(r - '1')
 		if m.cfg.Mode == modeTime && idx < len(timePresets) {
@@ -217,6 +226,14 @@ func (m Model) handleMenuKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// submitWord commits the current input as a completed word and advances
+// to the next one.
+func (m *Model) submitWord() {
+	m.completed = append(m.completed, completedWord{typed: m.current, target: m.currentTarget()})
+	m.current = ""
+	m.wordIdx++
 }
 
 func (m Model) handleTypingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -240,12 +257,9 @@ func (m Model) handleTypingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.current == "" {
 			return m, nil
 		}
-		m.completed = append(m.completed, completedWord{typed: m.current, target: target})
-		m.current = ""
-		m.wordIdx++
+		m.submitWord()
 		if m.cfg.Mode == modeWords && m.wordIdx >= len(m.targetWords) {
 			m.finish()
-			return m, nil
 		}
 		return m, nil
 
@@ -256,6 +270,7 @@ func (m Model) handleTypingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.start = time.Now()
 			cmd = tickCmd()
 		}
+		isLastWord := m.cfg.Mode == modeWords && m.wordIdx == len(m.targetWords)-1
 		for _, r := range msg.Runes {
 			pos := len(m.current)
 			if pos < len(target) {
@@ -268,6 +283,14 @@ func (m Model) handleTypingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.keyIncorrect++
 			}
 			m.current += string(r)
+
+			// Word mode ends the instant the final word reaches full
+			// length - no trailing space required to submit it.
+			if isLastWord && len(target) > 0 && len(m.current) == len(target) {
+				m.submitWord()
+				m.finish()
+				return m, nil
+			}
 		}
 		return m, cmd
 	}
@@ -291,6 +314,14 @@ func (m *Model) finish() {
 	m.result = computeResult(m.completed, m.current, m.currentTarget(), m.keyCorrect, m.keyIncorrect, dur)
 }
 
+func (m Model) theme() Theme {
+	return themes[m.themeIdx]
+}
+
+func (m Model) styles() styleSet {
+	return buildStyles(m.theme())
+}
+
 func (m Model) View() string {
 	if m.width == 0 {
 		return ""
@@ -303,35 +334,49 @@ func (m Model) View() string {
 	}
 }
 
-func (m Model) viewHeader() string {
+func (m Model) viewHeader(s styleSet) string {
 	var b strings.Builder
-	b.WriteString(styleTitle.Render("clackity") + "  ")
+	b.WriteString(s.title.Render("clackity") + "  ")
 
 	if m.cfg.Mode == modeTime {
-		b.WriteString(styleModeActive.Render(fmt.Sprintf("time %d", m.cfg.Seconds)))
+		b.WriteString(s.modeOn.Render(fmt.Sprintf("time %d", m.cfg.Seconds)))
 	} else {
-		b.WriteString(styleModeActive.Render(fmt.Sprintf("words %d", m.cfg.WordGoal)))
+		b.WriteString(s.modeOn.Render(fmt.Sprintf("words %d", m.cfg.WordGoal)))
 	}
 	if !m.menuFocused {
-		b.WriteString(styleHelp.Render("   tab: settings"))
+		b.WriteString(s.help.Render("   tab: settings"))
 	}
 	return b.String()
 }
 
-func (m Model) viewMenu() string {
-	renderColumn := func(label string, presets []int, idx int, active bool) string {
+func (m Model) viewMenu(s styleSet) string {
+	renderRow := func(label string, presets []int, idx int, active bool) string {
 		var b strings.Builder
-		labelStyle := styleModeInactive
+		labelStyle := s.modeOff
 		if active {
-			labelStyle = styleModeActive
+			labelStyle = s.modeOn
 		}
 		b.WriteString(labelStyle.Render(label) + "  ")
 		for i, p := range presets {
-			s := fmt.Sprintf("%d", p)
+			ps := fmt.Sprintf("%d", p)
 			if active && i == idx {
-				b.WriteString(styleAccent.Render("[" + s + "]"))
+				b.WriteString(s.accent.Render("[" + ps + "]"))
 			} else {
-				b.WriteString(styleMuted.Render(s))
+				b.WriteString(s.muted.Render(ps))
+			}
+			b.WriteString(" ")
+		}
+		return b.String()
+	}
+
+	renderThemeRow := func() string {
+		var b strings.Builder
+		b.WriteString(s.modeOn.Render("theme") + "  ")
+		for i, t := range themes {
+			if i == m.themeIdx {
+				b.WriteString(s.accent.Render("[" + t.Name + "]"))
+			} else {
+				b.WriteString(s.muted.Render(t.Name))
 			}
 			b.WriteString(" ")
 		}
@@ -339,21 +384,24 @@ func (m Model) viewMenu() string {
 	}
 
 	var b strings.Builder
-	b.WriteString(renderColumn("time", timePresets, m.timeIdx, m.cfg.Mode == modeTime))
+	b.WriteString(renderRow("time ", timePresets, m.timeIdx, m.cfg.Mode == modeTime))
 	b.WriteString("\n")
-	b.WriteString(renderColumn("words", wordPresets, m.wordsIdx, m.cfg.Mode == modeWords))
+	b.WriteString(renderRow("words", wordPresets, m.wordsIdx, m.cfg.Mode == modeWords))
 	b.WriteString("\n")
-	b.WriteString(styleHelp.Render("t/w mode  ·  1-5 preset  ·  enter/esc/tab close"))
+	b.WriteString(renderThemeRow())
+	b.WriteString("\n")
+	b.WriteString(s.help.Render("t/w mode  ·  1-5 preset  ·  c theme  ·  enter/esc/tab close"))
 	return b.String()
 }
 
 func (m Model) viewTyping() string {
+	s := m.styles()
 	var b strings.Builder
-	b.WriteString(m.viewHeader())
+	b.WriteString(m.viewHeader(s))
 	b.WriteString("\n\n")
 
 	if m.menuFocused {
-		b.WriteString(m.viewMenu())
+		b.WriteString(m.viewMenu(s))
 		b.WriteString("\n\n")
 	}
 
@@ -362,36 +410,43 @@ func (m Model) viewTyping() string {
 		if remaining < 0 {
 			remaining = 0
 		}
-		b.WriteString(styleAccent.Render(fmt.Sprintf("%d", int(remaining.Seconds()+0.999))))
+		b.WriteString(s.accent.Render(fmt.Sprintf("%d", int(remaining.Seconds()+0.999))))
 	} else {
-		b.WriteString(styleAccent.Render(fmt.Sprintf("%d/%d", m.wordIdx, len(m.targetWords))))
+		b.WriteString(s.accent.Render(fmt.Sprintf("%d/%d", m.wordIdx, len(m.targetWords))))
 	}
 	b.WriteString("\n\n")
 
-	b.WriteString(m.viewWords())
+	b.WriteString(m.viewWords(s))
 	b.WriteString("\n")
 
-	b.WriteString(styleHelp.Render("esc quit  ·  enter restart  ·  tab settings"))
+	b.WriteString(s.help.Render("esc quit  ·  enter restart  ·  tab settings"))
 	return b.String()
 }
 
 const wrapWidth = 70
 
-func (m Model) viewWords() string {
+func (m Model) viewWords(s styleSet) string {
 	var lines []strings.Builder
 	lines = append(lines, strings.Builder{})
 	lineLen := 0
 
-	push := func(s string, visLen int) {
+	push := func(content string, sep string, visLen int) {
 		if lineLen+visLen > wrapWidth {
 			lines = append(lines, strings.Builder{})
 			lineLen = 0
 		}
-		lines[len(lines)-1].WriteString(s)
+		lines[len(lines)-1].WriteString(content)
+		lines[len(lines)-1].WriteString(sep)
 		lineLen += visLen
 	}
 
-	renderWord := func(idx int) {
+	// renderWord returns the styled word content, its visible width
+	// (excluding the trailing separator), and whether the cursor
+	// currently sits right after it (i.e. it's the current word and
+	// fully typed) - in which case the single separator space that
+	// follows should be rendered as the cursor block rather than a
+	// second, plain space stacked on top of it.
+	renderWord := func(idx int) (string, int, bool) {
 		target := m.targetWords[idx]
 		var typed string
 		isCurrent := idx == m.wordIdx
@@ -404,26 +459,28 @@ func (m Model) viewWords() string {
 		var w strings.Builder
 		for i, tc := range target {
 			ch := string(tc)
-			if i < len(typed) {
+			switch {
+			case i < len(typed):
 				if typed[i] == byte(tc) {
-					w.WriteString(styleFg.Render(ch))
+					w.WriteString(s.fg.Render(ch))
 				} else {
-					w.WriteString(styleError.Bold(true).Render(ch))
+					w.WriteString(s.err.Bold(true).Render(ch))
 				}
-			} else if isCurrent && i == len(typed) {
-				w.WriteString(styleCursor.Render(ch))
-			} else {
-				w.WriteString(styleMuted.Render(ch))
+			case isCurrent && i == len(typed):
+				w.WriteString(s.cursor.Render(ch))
+			default:
+				w.WriteString(s.muted.Render(ch))
 			}
 		}
+		visLen := len([]rune(target))
 		if len(typed) > len(target) {
-			w.WriteString(styleError.Underline(true).Render(typed[len(target):]))
-		}
-		if isCurrent && len(typed) >= len(target) {
-			w.WriteString(styleCursor.Render(" "))
+			extra := typed[len(target):]
+			w.WriteString(s.err.Underline(true).Render(extra))
+			visLen += len(extra)
 		}
 
-		push(w.String()+" ", len([]rune(target))+1)
+		cursorAtEnd := isCurrent && len(typed) >= len(target)
+		return w.String(), visLen, cursorAtEnd
 	}
 
 	limit := len(m.targetWords)
@@ -431,7 +488,12 @@ func (m Model) viewWords() string {
 		limit = 60
 	}
 	for i := 0; i < limit; i++ {
-		renderWord(i)
+		content, visLen, cursorAtEnd := renderWord(i)
+		sep := " "
+		if cursorAtEnd {
+			sep = s.cursor.Render(" ")
+		}
+		push(content, sep, visLen+1)
 	}
 
 	var out []string
@@ -442,13 +504,14 @@ func (m Model) viewWords() string {
 }
 
 func (m Model) viewResults() string {
+	s := m.styles()
 	var b strings.Builder
-	b.WriteString(styleTitle.Render("clackity") + "\n\n")
+	b.WriteString(s.title.Render("clackity") + "\n\n")
 
 	r := m.result
 	statStyle := lipgloss.NewStyle().Width(14)
 	stat := func(label string, value string) string {
-		return statStyle.Render(styleStatLabel.Render(label) + "\n" + styleBigStat.Render(value))
+		return statStyle.Render(s.statLabel.Render(label) + "\n" + s.bigStat.Render(value))
 	}
 
 	row := lipgloss.JoinHorizontal(lipgloss.Top,
@@ -459,8 +522,8 @@ func (m Model) viewResults() string {
 	)
 	b.WriteString(row)
 	b.WriteString("\n\n")
-	b.WriteString(styleMuted.Render(fmt.Sprintf("correct %d  ·  incorrect %d", r.Correct, r.Incorrect)))
+	b.WriteString(s.muted.Render(fmt.Sprintf("correct %d  ·  incorrect %d", r.Correct, r.Incorrect)))
 	b.WriteString("\n\n")
-	b.WriteString(styleHelp.Render("tab restart  ·  esc quit"))
+	b.WriteString(s.help.Render("tab restart  ·  esc quit"))
 	return b.String()
 }
