@@ -31,13 +31,14 @@ type completedWord struct {
 	target string
 }
 
+var timePresets = []int{10, 15, 30, 60, 120}
+var wordPresets = []int{10, 25, 50, 100}
+
 type tickMsg time.Time
 
-// Config selects the test mode and its duration/word-count, fixed for the
-// life of the process (set from CLI flags). It is intentionally not
-// changeable via in-app hotkeys: any letter or digit could be the first
-// character of a word being typed, so a "press 1-4 to pick a preset" scheme
-// would hijack real keystrokes.
+// Config is the starting mode/duration, typically from CLI flags. It need
+// not match a preset exactly; presets only drive the in-app settings
+// palette (see menuFocused) and default to their closest entry.
 type Config struct {
 	Mode     testMode
 	Seconds  int
@@ -49,6 +50,19 @@ func WordsConfig(words int) Config  { return Config{Mode: modeWords, WordGoal: w
 
 type Model struct {
 	cfg Config
+
+	// timeIdx/wordsIdx track which preset is highlighted in the settings
+	// palette; they're cosmetic and only meaningfully authoritative once
+	// the user has picked a preset there.
+	timeIdx  int
+	wordsIdx int
+
+	// menuFocused gates the settings palette. While true, every keystroke
+	// is a palette command (preset digit, mode letter, close). While
+	// false, every keystroke is typing input. Keeping these mutually
+	// exclusive is what lets mode-switching live entirely on the
+	// keyboard without ever hijacking a real word's first letter.
+	menuFocused bool
 
 	state state
 
@@ -68,9 +82,22 @@ type Model struct {
 }
 
 func New(cfg Config) Model {
-	m := Model{cfg: cfg}
+	m := Model{
+		cfg:      cfg,
+		timeIdx:  nearestIndex(timePresets, cfg.Seconds, 2),
+		wordsIdx: nearestIndex(wordPresets, cfg.WordGoal, 1),
+	}
 	m.reset()
 	return m
+}
+
+func nearestIndex(presets []int, val, def int) int {
+	for i, p := range presets {
+		if p == val {
+			return i
+		}
+	}
+	return def
 }
 
 func (m *Model) reset() {
@@ -127,24 +154,69 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
-	case tea.KeyCtrlC, tea.KeyEsc:
+	case tea.KeyCtrlC:
 		return m, tea.Quit
 
-	case tea.KeyTab, tea.KeyEnter:
+	case tea.KeyEsc:
+		if m.menuFocused {
+			m.menuFocused = false
+			return m, nil
+		}
+		return m, tea.Quit
+
+	case tea.KeyEnter:
+		if m.menuFocused {
+			m.menuFocused = false
+			return m, nil
+		}
+		m.reset()
+		return m, nil
+
+	case tea.KeyTab:
 		if m.state == stateDone {
 			m.reset()
 			return m, nil
 		}
-		if msg.Type == tea.KeyTab {
-			m.reset()
-			return m, nil
-		}
+		m.menuFocused = !m.menuFocused
+		return m, nil
+	}
+
+	if m.menuFocused {
+		return m.handleMenuKey(msg)
 	}
 
 	if m.state == stateDone {
 		return m, nil
 	}
 	return m.handleTypingKey(msg)
+}
+
+func (m Model) handleMenuKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type != tea.KeyRunes || len(msg.Runes) != 1 {
+		return m, nil
+	}
+	switch r := msg.Runes[0]; r {
+	case 't':
+		m.cfg.Mode = modeTime
+		m.cfg.Seconds = timePresets[m.timeIdx]
+		m.reset()
+	case 'w':
+		m.cfg.Mode = modeWords
+		m.cfg.WordGoal = wordPresets[m.wordsIdx]
+		m.reset()
+	case '1', '2', '3', '4', '5':
+		idx := int(r - '1')
+		if m.cfg.Mode == modeTime && idx < len(timePresets) {
+			m.timeIdx = idx
+			m.cfg.Seconds = timePresets[idx]
+			m.reset()
+		} else if m.cfg.Mode == modeWords && idx < len(wordPresets) {
+			m.wordsIdx = idx
+			m.cfg.WordGoal = wordPresets[idx]
+			m.reset()
+		}
+	}
+	return m, nil
 }
 
 func (m Model) handleTypingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -240,6 +312,38 @@ func (m Model) viewHeader() string {
 	} else {
 		b.WriteString(styleModeActive.Render(fmt.Sprintf("words %d", m.cfg.WordGoal)))
 	}
+	if !m.menuFocused {
+		b.WriteString(styleHelp.Render("   tab: settings"))
+	}
+	return b.String()
+}
+
+func (m Model) viewMenu() string {
+	renderColumn := func(label string, presets []int, idx int, active bool) string {
+		var b strings.Builder
+		labelStyle := styleModeInactive
+		if active {
+			labelStyle = styleModeActive
+		}
+		b.WriteString(labelStyle.Render(label) + "  ")
+		for i, p := range presets {
+			s := fmt.Sprintf("%d", p)
+			if active && i == idx {
+				b.WriteString(styleAccent.Render("[" + s + "]"))
+			} else {
+				b.WriteString(styleMuted.Render(s))
+			}
+			b.WriteString(" ")
+		}
+		return b.String()
+	}
+
+	var b strings.Builder
+	b.WriteString(renderColumn("time", timePresets, m.timeIdx, m.cfg.Mode == modeTime))
+	b.WriteString("\n")
+	b.WriteString(renderColumn("words", wordPresets, m.wordsIdx, m.cfg.Mode == modeWords))
+	b.WriteString("\n")
+	b.WriteString(styleHelp.Render("t/w mode  ·  1-5 preset  ·  enter/esc/tab close"))
 	return b.String()
 }
 
@@ -247,6 +351,11 @@ func (m Model) viewTyping() string {
 	var b strings.Builder
 	b.WriteString(m.viewHeader())
 	b.WriteString("\n\n")
+
+	if m.menuFocused {
+		b.WriteString(m.viewMenu())
+		b.WriteString("\n\n")
+	}
 
 	if m.cfg.Mode == modeTime {
 		remaining := m.timeLimit() - m.elapsed
@@ -262,7 +371,7 @@ func (m Model) viewTyping() string {
 	b.WriteString(m.viewWords())
 	b.WriteString("\n")
 
-	b.WriteString(styleHelp.Render("esc quit  ·  tab restart"))
+	b.WriteString(styleHelp.Render("esc quit  ·  enter restart  ·  tab settings"))
 	return b.String()
 }
 
