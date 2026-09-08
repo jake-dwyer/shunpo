@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/jake-dwyer/clackity/internal/app"
+	"github.com/jake-dwyer/shunpo/internal/app"
 )
 
 func main() {
@@ -26,7 +26,7 @@ func main() {
 
 	p := tea.NewProgram(app.New(cfg), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
-		fmt.Fprintln(os.Stderr, "clackity:", err)
+		fmt.Fprintln(os.Stderr, "shunpo:", err)
 		os.Exit(1)
 	}
 }

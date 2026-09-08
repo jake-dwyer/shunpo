@@ -1,4 +1,4 @@
-module github.com/jake-dwyer/clackity
+module github.com/jake-dwyer/shunpo
 
 go 1.27.1
 

@@ -8,7 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/jake-dwyer/clackity/internal/words"
+	"github.com/jake-dwyer/shunpo/internal/words"
 )
 
 type state int
@@ -336,7 +336,7 @@ func (m Model) View() string {
 
 func (m Model) viewHeader(s styleSet) string {
 	var b strings.Builder
-	b.WriteString(s.title.Render("clackity") + "  ")
+	b.WriteString(s.title.Render("shunpo") + "  ")
 
 	if m.cfg.Mode == modeTime {
 		b.WriteString(s.modeOn.Render(fmt.Sprintf("time %d", m.cfg.Seconds)))
@@ -506,7 +506,7 @@ func (m Model) viewWords(s styleSet) string {
 func (m Model) viewResults() string {
 	s := m.styles()
 	var b strings.Builder
-	b.WriteString(s.title.Render("clackity") + "\n\n")
+	b.WriteString(s.title.Render("shunpo") + "\n\n")
 
 	r := m.result
 	statStyle := lipgloss.NewStyle().Width(14)

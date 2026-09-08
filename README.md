@@ -1,6 +1,6 @@
-# clackity
+# shunpo
 
-A [monkeytype](https://monkeytype.com)-style typing test for your terminal, built with [Bubble Tea](https://github.com/charmbracelet/bubbletea).
+*Flash step.* A [monkeytype](https://monkeytype.com)-style typing test for your terminal, built with [Bubble Tea](https://github.com/charmbracelet/bubbletea).
 
 Made for typing tests in a spare terminal pane while something else (a build, a long-running agent, whatever) is working.
 
@@ -9,24 +9,24 @@ Made for typing tests in a spare terminal pane while something else (a build, a 
 ## Install
 
 ```
-go install github.com/jake-dwyer/clackity@latest
+go install github.com/jake-dwyer/shunpo@latest
 ```
 
 Or build from source:
 
 ```
-git clone https://github.com/jake-dwyer/clackity
-cd clackity
-go build -o clackity .
+git clone https://github.com/jake-dwyer/shunpo
+cd shunpo
+go build -o shunpo .
 ```
 
 ## Usage
 
 ```
-clackity                    # 30 second test (default)
-clackity -time 60           # 60 second test
-clackity -words 50          # 50 word test
-clackity -theme dracula     # start with a specific theme
+shunpo                    # 30 second test (default)
+shunpo -time 60           # 60 second test
+shunpo -words 50          # 50 word test
+shunpo -theme dracula     # start with a specific theme
 ```
 
 While typing:
