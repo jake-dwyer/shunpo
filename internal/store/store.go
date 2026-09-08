@@ -23,14 +23,26 @@ type Record struct {
 	Date     string  `json:"date"`
 }
 
+// ThemeColors is a user-edited override for one theme's five core
+// colors, keyed by theme name in Store.ThemeOverrides. Layered on top
+// of the theme's built-in defaults at render time.
+type ThemeColors struct {
+	Bg     string `json:"bg"`
+	Fg     string `json:"fg"`
+	Muted  string `json:"muted"`
+	Accent string `json:"accent"`
+	Error  string `json:"error"`
+}
+
 type Store struct {
-	Settings Settings          `json:"settings"`
-	Records  map[string]Record `json:"records"`
-	Typos    map[string]int    `json:"typos"`
+	Settings       Settings               `json:"settings"`
+	Records        map[string]Record      `json:"records"`
+	Typos          map[string]int         `json:"typos"`
+	ThemeOverrides map[string]ThemeColors `json:"themeOverrides"`
 }
 
 func empty() Store {
-	return Store{Records: map[string]Record{}, Typos: map[string]int{}}
+	return Store{Records: map[string]Record{}, Typos: map[string]int{}, ThemeOverrides: map[string]ThemeColors{}}
 }
 
 // RecordKey identifies a test configuration for personal-best tracking,
@@ -68,6 +80,9 @@ func Load() Store {
 	}
 	if st.Typos == nil {
 		st.Typos = map[string]int{}
+	}
+	if st.ThemeOverrides == nil {
+		st.ThemeOverrides = map[string]ThemeColors{}
 	}
 	return st
 }

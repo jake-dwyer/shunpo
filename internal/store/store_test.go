@@ -9,6 +9,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	st.Settings = Settings{Mode: "time", Seconds: 60, Theme: "dracula"}
 	st.Records[RecordKey("time", 60)] = Record{WPM: 80, Accuracy: 97, Date: "2026-09-08"}
 	st.Typos["e"] = 3
+	st.ThemeOverrides["dracula"] = ThemeColors{Bg: "#000000", Fg: "#ffffff", Muted: "#888888", Accent: "#ff00ff", Error: "#ff0000"}
 
 	if err := st.Save(); err != nil {
 		t.Fatalf("save failed: %v", err)
@@ -24,6 +25,10 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 	if loaded.Typos["e"] != 3 {
 		t.Fatalf("expected typo count 3, got %d", loaded.Typos["e"])
+	}
+	ov, ok := loaded.ThemeOverrides["dracula"]
+	if !ok || ov.Bg != "#000000" {
+		t.Fatalf("expected theme override to round-trip, got %+v ok=%v", ov, ok)
 	}
 }
 

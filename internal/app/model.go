@@ -81,6 +81,18 @@ type Model struct {
 	// keyboard without ever hijacking a real word's first letter.
 	menuFocused bool
 
+	// themeEditorOpen gates the theme editor overlay, opened with 'e'
+	// from the settings palette. editTheme is a working copy (starting
+	// from the active, already-overridden theme) that edits apply to
+	// live; it's only written back to the store on close. editField
+	// indexes into {bg, fg, muted, accent, error}. editingHex is true
+	// while actively typing a replacement hex value into hexBuf.
+	themeEditorOpen bool
+	editTheme       Theme
+	editField       int
+	editingHex      bool
+	hexBuf          string
+
 	state state
 
 	targetWords []string
@@ -240,6 +252,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type == tea.KeyCtrlC {
+		return m, tea.Quit
+	}
+
+	if m.themeEditorOpen {
+		return m.handleEditorKey(msg)
+	}
+
 	switch msg.Type {
 	case tea.KeyCtrlC:
 		return m, tea.Quit
@@ -313,6 +333,101 @@ func (m Model) handleMenuKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.reset()
 			m.syncSettings()
 			m.maybeSave()
+		}
+	case 'e':
+		m.editTheme = m.theme()
+		m.editField = 0
+		m.editingHex = false
+		m.hexBuf = ""
+		m.themeEditorOpen = true
+	}
+	return m, nil
+}
+
+// setEditField writes hex into whichever of editTheme's five editable
+// colors editField currently points at.
+func (m *Model) setEditField(hex string) {
+	switch m.editField {
+	case 0:
+		m.editTheme.Bg = hex
+	case 1:
+		m.editTheme.Fg = hex
+	case 2:
+		m.editTheme.Muted = hex
+	case 3:
+		m.editTheme.Accent = hex
+	default:
+		m.editTheme.Error = hex
+	}
+}
+
+func isHexDigit(r rune) bool {
+	return (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')
+}
+
+func (m Model) handleEditorKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.editingHex {
+		switch msg.Type {
+		case tea.KeyEnter:
+			if len(m.hexBuf) == 6 {
+				m.setEditField("#" + strings.ToLower(m.hexBuf))
+			}
+			m.editingHex = false
+			return m, nil
+		case tea.KeyEsc:
+			m.editingHex = false
+			return m, nil
+		case tea.KeyBackspace:
+			if len(m.hexBuf) > 0 {
+				m.hexBuf = m.hexBuf[:len(m.hexBuf)-1]
+			}
+			return m, nil
+		case tea.KeyRunes:
+			for _, r := range msg.Runes {
+				if len(m.hexBuf) < 6 && isHexDigit(r) {
+					m.hexBuf += string(r)
+				}
+			}
+			if len(m.hexBuf) == 6 {
+				m.setEditField("#" + strings.ToLower(m.hexBuf))
+			}
+			return m, nil
+		}
+		return m, nil
+	}
+
+	switch msg.Type {
+	case tea.KeyEsc:
+		// Commit the working copy as this theme's saved override and
+		// close, back to the settings palette.
+		if m.store.ThemeOverrides == nil {
+			m.store.ThemeOverrides = map[string]store.ThemeColors{}
+		}
+		m.store.ThemeOverrides[m.editTheme.Name] = store.ThemeColors{
+			Bg: m.editTheme.Bg, Fg: m.editTheme.Fg, Muted: m.editTheme.Muted,
+			Accent: m.editTheme.Accent, Error: m.editTheme.Error,
+		}
+		m.maybeSave()
+		m.themeEditorOpen = false
+		return m, nil
+	case tea.KeyUp:
+		m.editField = (m.editField + 4) % 5
+		return m, nil
+	case tea.KeyDown:
+		m.editField = (m.editField + 1) % 5
+		return m, nil
+	case tea.KeyEnter:
+		// Start empty rather than pre-filled: hexBuf only supports
+		// append/backspace-from-end (no cursor), so typing a fresh value
+		// is the only editing model that makes sense here.
+		m.editingHex = true
+		m.hexBuf = ""
+		return m, nil
+	case tea.KeyRunes:
+		if len(msg.Runes) == 1 && msg.Runes[0] == 'r' {
+			delete(m.store.ThemeOverrides, m.editTheme.Name)
+			m.maybeSave()
+			m.editTheme = themes[m.themeIdx]
 		}
 	}
 	return m, nil
@@ -424,8 +539,14 @@ func (m *Model) finish() {
 	m.maybeSave()
 }
 
+// theme returns the active theme with any saved user override layered
+// on top of the built-in preset.
 func (m Model) theme() Theme {
-	return themes[m.themeIdx]
+	t := themes[m.themeIdx]
+	if ov, ok := m.store.ThemeOverrides[t.Name]; ok {
+		t.Bg, t.Fg, t.Muted, t.Accent, t.Error = ov.Bg, ov.Fg, ov.Muted, ov.Accent, ov.Error
+	}
+	return t
 }
 
 func (m Model) styles() styleSet {
@@ -451,7 +572,7 @@ func (m Model) View() string {
 func (m Model) viewHeader(s styleSet) string {
 	var b strings.Builder
 	b.WriteString(s.title.Render("瞬歩 shunpo") + s.muted.Render("  "))
-	b.WriteString(s.accent.Render("✦") + s.muted.Render("  "))
+	b.WriteString(s.accent.Render("☆") + s.muted.Render("  "))
 
 	if m.cfg.Mode == modeTime {
 		b.WriteString(s.modeOn.Render(fmt.Sprintf("time %d", m.cfg.Seconds)))
@@ -530,9 +651,52 @@ func (m Model) viewMenu(s styleSet) string {
 	b.WriteString("\n")
 	b.WriteString(renderThemeRow(menuWidth))
 	b.WriteString("\n\n")
-	b.WriteString(hintLine(s, "t", "/", "w", " mode   ", "1-5", " preset   ", "c", " theme   ", "enter", " close"))
+	b.WriteString(hintLine(s, "t", "/", "w", " mode   ", "1-5", " preset   ", "c", " theme   ", "e", " edit   ", "enter", " close"))
 
 	return s.border.Render(b.String())
+}
+
+var editFieldLabels = []string{"bg", "fg", "muted", "accent", "error"}
+
+// viewThemeEditor renders live-editable swatches for the theme currently
+// being tuned. Chrome (labels, borders, hints) uses the stable, already
+// -committed theme so the editor itself never becomes unreadable while
+// mid-edit of a bad value; only the sample line previews the in-progress
+// edit (m.editTheme).
+func (m Model) viewThemeEditor(outer styleSet) string {
+	live := buildStyles(m.editTheme)
+	values := []string{m.editTheme.Bg, m.editTheme.Fg, m.editTheme.Muted, m.editTheme.Accent, m.editTheme.Error}
+
+	var b strings.Builder
+	b.WriteString(outer.title.Render("theme editor") + outer.muted.Render("  "+m.editTheme.Name))
+	b.WriteString("\n\n")
+
+	for i, label := range editFieldLabels {
+		cursor := outer.muted.Render("  ")
+		if i == m.editField {
+			cursor = outer.accent.Render("> ")
+		}
+		swatch := lipgloss.NewStyle().Background(lipgloss.Color(values[i])).Render("  ")
+		row := cursor + outer.modeOff.Render(fmt.Sprintf("%-7s", label)) + swatch + outer.muted.Render(" ")
+		if i == m.editField && m.editingHex {
+			row += outer.fg.Render("#"+m.hexBuf) + outer.caret.Render("_")
+		} else {
+			row += outer.fg.Render(values[i])
+		}
+		b.WriteString(row)
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+
+	sample := live.fg.Render("correct") + live.muted.Render(" ") +
+		live.err.Bold(true).Render("wrong") + live.muted.Render(" ") +
+		live.muted.Render("upcoming") + live.muted.Render("   ") +
+		live.accent.Render("42")
+	b.WriteString(lipgloss.NewStyle().Background(lipgloss.Color(m.editTheme.Bg)).Padding(0, 1).Render(sample))
+	b.WriteString("\n\n")
+
+	b.WriteString(hintLine(outer, "up/down", " field   ", "enter", " edit hex   ", "r", " reset theme   ", "esc", " save & close"))
+	return outer.border.Render(b.String())
 }
 
 func (m Model) viewTyping(s styleSet) string {
@@ -540,7 +704,10 @@ func (m Model) viewTyping(s styleSet) string {
 	b.WriteString(m.viewHeader(s))
 	b.WriteString("\n\n")
 
-	if m.menuFocused {
+	if m.themeEditorOpen {
+		b.WriteString(m.viewThemeEditor(s))
+		b.WriteString("\n\n")
+	} else if m.menuFocused {
 		b.WriteString(m.viewMenu(s))
 		b.WriteString("\n\n")
 	}

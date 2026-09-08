@@ -382,3 +382,135 @@ func stripANSI(s string) string {
 	}
 	return b.String()
 }
+
+func typeRunes(m Model, s string) Model {
+	for _, r := range s {
+		m = send(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	return m
+}
+
+func TestThemeEditorOpensFromPalette(t *testing.T) {
+	m := New(TimeConfig(30))
+	m = send(m, tea.KeyMsg{Type: tea.KeyTab}) // open palette
+	m = send(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+
+	if !m.themeEditorOpen {
+		t.Fatal("expected 'e' in the palette to open the theme editor")
+	}
+	if m.editTheme.Name != themes[m.themeIdx].Name {
+		t.Fatalf("expected editTheme to start as the active theme, got %q want %q", m.editTheme.Name, themes[m.themeIdx].Name)
+	}
+}
+
+func TestThemeEditorEditsHexLiveAndCommitsOnEnter(t *testing.T) {
+	m := New(TimeConfig(30))
+	m = send(m, tea.KeyMsg{Type: tea.KeyTab})
+	m = send(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	// editField 0 == bg
+	m = send(m, tea.KeyMsg{Type: tea.KeyEnter}) // start editing hex
+
+	if !m.editingHex {
+		t.Fatal("expected enter to start hex editing")
+	}
+
+	m = typeRunes(m, "ff00aa")
+	if m.editTheme.Bg != "#ff00aa" {
+		t.Fatalf("expected live preview to update while typing, got %q", m.editTheme.Bg)
+	}
+
+	m = send(m, tea.KeyMsg{Type: tea.KeyEnter}) // commit
+	if m.editingHex {
+		t.Fatal("expected enter to stop hex editing")
+	}
+	if m.editTheme.Bg != "#ff00aa" {
+		t.Fatalf("expected committed bg #ff00aa, got %q", m.editTheme.Bg)
+	}
+}
+
+// Typing all 6 digits applies live (covered by
+// TestThemeEditorEditsHexLiveAndCommitsOnEnter) - that's the point of a
+// live preview. Esc only truly "cancels" an incomplete entry, since a
+// completed one is already applied by the time you'd press it.
+func TestThemeEditorEscOnIncompleteHexLeavesValueUntouched(t *testing.T) {
+	m := New(TimeConfig(30))
+	m = send(m, tea.KeyMsg{Type: tea.KeyTab})
+	m = send(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	original := m.editTheme.Bg
+
+	m = send(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = typeRunes(m, "abc") // fewer than 6 digits - never applied
+	m = send(m, tea.KeyMsg{Type: tea.KeyEsc})
+
+	if m.editingHex {
+		t.Fatal("expected esc to stop hex editing")
+	}
+	if m.editTheme.Bg != original {
+		t.Fatalf("expected incomplete edit to leave bg unchanged at %q, got %q", original, m.editTheme.Bg)
+	}
+	if !m.themeEditorOpen {
+		t.Fatal("expected esc from hex-editing to only cancel the field, not close the editor")
+	}
+}
+
+func TestThemeEditorSavesOverrideOnClose(t *testing.T) {
+	m := New(TimeConfig(30))
+	themeName := themes[m.themeIdx].Name
+	m = send(m, tea.KeyMsg{Type: tea.KeyTab})
+	m = send(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	m = send(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = typeRunes(m, "123456")
+	m = send(m, tea.KeyMsg{Type: tea.KeyEnter}) // commit field
+
+	m = send(m, tea.KeyMsg{Type: tea.KeyEsc}) // close editor, save override
+
+	if m.themeEditorOpen {
+		t.Fatal("expected esc to close the editor")
+	}
+	ov, ok := m.store.ThemeOverrides[themeName]
+	if !ok || ov.Bg != "#123456" {
+		t.Fatalf("expected saved override with bg #123456, got %+v ok=%v", ov, ok)
+	}
+	if m.theme().Bg != "#123456" {
+		t.Fatalf("expected m.theme() to reflect the saved override, got %q", m.theme().Bg)
+	}
+}
+
+func TestThemeEditorResetRemovesOverride(t *testing.T) {
+	m := New(TimeConfig(30))
+	themeName := themes[m.themeIdx].Name
+	factoryBg := themes[m.themeIdx].Bg
+
+	m = send(m, tea.KeyMsg{Type: tea.KeyTab})
+	m = send(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	m = send(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = typeRunes(m, "654321")
+	m = send(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	m = send(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}}) // reset
+
+	if _, ok := m.store.ThemeOverrides[themeName]; ok {
+		t.Fatal("expected reset to remove the stored override")
+	}
+	if m.editTheme.Bg != factoryBg {
+		t.Fatalf("expected editTheme reset to factory bg %q, got %q", factoryBg, m.editTheme.Bg)
+	}
+}
+
+func TestThemeEditorArrowsNavigateFieldsWithWraparound(t *testing.T) {
+	m := New(TimeConfig(30))
+	m = send(m, tea.KeyMsg{Type: tea.KeyTab})
+	m = send(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+
+	if m.editField != 0 {
+		t.Fatalf("expected editField to start at 0, got %d", m.editField)
+	}
+	m = send(m, tea.KeyMsg{Type: tea.KeyUp}) // wrap to last field
+	if m.editField != 4 {
+		t.Fatalf("expected wraparound to field 4, got %d", m.editField)
+	}
+	m = send(m, tea.KeyMsg{Type: tea.KeyDown}) // wrap back to first
+	if m.editField != 0 {
+		t.Fatalf("expected wraparound back to field 0, got %d", m.editField)
+	}
+}
