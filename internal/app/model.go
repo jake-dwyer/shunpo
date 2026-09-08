@@ -444,21 +444,18 @@ func (m Model) View() string {
 	default:
 		content = m.viewTyping(s)
 	}
-	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content,
-		lipgloss.WithWhitespaceBackground(s.bg))
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
 }
 
 func (m Model) viewHeader(s styleSet) string {
 	var b strings.Builder
 	b.WriteString(s.title.Render("瞬歩 shunpo") + "  ")
+	b.WriteString(s.accent.Render("✦") + "  ")
 
 	if m.cfg.Mode == modeTime {
 		b.WriteString(s.modeOn.Render(fmt.Sprintf("time %d", m.cfg.Seconds)))
 	} else {
 		b.WriteString(s.modeOn.Render(fmt.Sprintf("words %d", m.cfg.WordGoal)))
-	}
-	if !m.menuFocused {
-		b.WriteString("   " + hintLine(s, "tab", " settings"))
 	}
 	return b.String()
 }
@@ -483,26 +480,51 @@ func (m Model) viewMenu(s styleSet) string {
 		return b.String()
 	}
 
-	renderThemeRow := func() string {
-		var b strings.Builder
-		b.WriteString(s.modeOn.Render("theme") + "  ")
+	// The theme row can outgrow a narrow terminal, so it wraps onto
+	// further lines indented to line up under the label - the same
+	// pattern viewWords uses for wrapping the word list itself.
+	renderThemeRow := func(maxWidth int) string {
+		label := "theme"
+		indent := strings.Repeat(" ", len(label)+2)
+		lines := []strings.Builder{{}}
+		lines[0].WriteString(s.modeOn.Render(label) + "  ")
+		curLen := len(label) + 2
+
 		for i, t := range themes {
+			entry := t.Name
 			if i == m.themeIdx {
-				b.WriteString(s.accent.Render("[" + t.Name + "]"))
-			} else {
-				b.WriteString(s.muted.Render(t.Name))
+				entry = "[" + t.Name + "]"
 			}
-			b.WriteString(" ")
+			entryLen := len(entry) + 1
+			if curLen+entryLen > maxWidth && curLen > len(indent) {
+				lines = append(lines, strings.Builder{})
+				lines[len(lines)-1].WriteString(indent)
+				curLen = len(indent)
+			}
+			if i == m.themeIdx {
+				lines[len(lines)-1].WriteString(s.accent.Render(entry))
+			} else {
+				lines[len(lines)-1].WriteString(s.muted.Render(entry))
+			}
+			lines[len(lines)-1].WriteString(" ")
+			curLen += entryLen
 		}
-		return b.String()
+
+		out := make([]string, len(lines))
+		for i, l := range lines {
+			out[i] = l.String()
+		}
+		return strings.Join(out, "\n")
 	}
+
+	menuWidth := m.wrapWidth() - 6 // border chars + padding
 
 	var b strings.Builder
 	b.WriteString(renderRow("time ", timePresets, m.timeIdx, m.cfg.Mode == modeTime))
 	b.WriteString("\n")
 	b.WriteString(renderRow("words", wordPresets, m.wordsIdx, m.cfg.Mode == modeWords))
 	b.WriteString("\n")
-	b.WriteString(renderThemeRow())
+	b.WriteString(renderThemeRow(menuWidth))
 	b.WriteString("\n\n")
 	b.WriteString(hintLine(s, "t", "/", "w", " mode   ", "1-5", " preset   ", "c", " theme   ", "enter", " close"))
 

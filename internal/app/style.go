@@ -21,6 +21,12 @@ var themes = []Theme{
 	{Name: "tokyonight", Bg: "#1a1b26", Panel: "#24283b", Accent: "#7aa2f7", Fg: "#c0caf5", Muted: "#565f89", Error: "#f7768e"},
 	{Name: "catppuccin", Bg: "#1e1e2e", Panel: "#313244", Accent: "#f5c2e7", Fg: "#cdd6f4", Muted: "#6c7086", Error: "#f38ba8"},
 	{Name: "solarized", Bg: "#002b36", Panel: "#073642", Accent: "#b58900", Fg: "#839496", Muted: "#586e75", Error: "#dc322f"},
+
+	// Anime-inspired themes.
+	{Name: "vagabond", Bg: "#0d0d0c", Panel: "#1a1a18", Accent: "#f2f0e6", Fg: "#c9c7ba", Muted: "#4a4944", Error: "#8b2419"},
+	{Name: "chidori", Bg: "#090c14", Panel: "#131a2b", Accent: "#4fd1ff", Fg: "#eaf6ff", Muted: "#35415c", Error: "#ff7a3d"},
+	{Name: "gojo", Bg: "#0a0f14", Panel: "#131c22", Accent: "#34e2e2", Fg: "#eafffb", Muted: "#3d5654", Error: "#ff5c8a"},
+	{Name: "susanoo", Bg: "#140d08", Panel: "#241608", Accent: "#ff9d2e", Fg: "#f7e6cf", Muted: "#6b5439", Error: "#d1453b"},
 }
 
 func themeIndexByName(name string) int {
