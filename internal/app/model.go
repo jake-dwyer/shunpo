@@ -444,7 +444,8 @@ func (m Model) View() string {
 	default:
 		content = m.viewTyping(s)
 	}
-	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content,
+		lipgloss.WithWhitespaceBackground(s.bg))
 }
 
 func (m Model) viewHeader(s styleSet) string {
@@ -560,8 +561,12 @@ func (m Model) viewTyping(s styleSet) string {
 }
 
 // caretGlyph is a thin insertion-point bar, matching monkeytype's caret
-// style, rather than a solid block covering a character cell.
-const caretGlyph = "│"
+// style, rather than a solid block covering a character cell. Plain ASCII
+// on purpose: box-drawing bars like "│" fall in Unicode's East-Asian
+// "ambiguous width" category, so some terminal/font combinations render
+// them double-width while our own width math assumes single-width - that
+// mismatch is what caused the earlier stray background banding.
+const caretGlyph = "|"
 
 func (m Model) wrapWidth() int {
 	w := m.width - 12
