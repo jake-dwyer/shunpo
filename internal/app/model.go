@@ -450,8 +450,8 @@ func (m Model) View() string {
 
 func (m Model) viewHeader(s styleSet) string {
 	var b strings.Builder
-	b.WriteString(s.title.Render("瞬歩 shunpo") + "  ")
-	b.WriteString(s.accent.Render("✦") + "  ")
+	b.WriteString(s.title.Render("瞬歩 shunpo") + s.muted.Render("  "))
+	b.WriteString(s.accent.Render("✦") + s.muted.Render("  "))
 
 	if m.cfg.Mode == modeTime {
 		b.WriteString(s.modeOn.Render(fmt.Sprintf("time %d", m.cfg.Seconds)))
@@ -468,7 +468,7 @@ func (m Model) viewMenu(s styleSet) string {
 		if active {
 			labelStyle = s.modeOn
 		}
-		b.WriteString(labelStyle.Render(label) + "  ")
+		b.WriteString(labelStyle.Render(label) + s.muted.Render("  "))
 		for i, p := range presets {
 			ps := fmt.Sprintf("%d", p)
 			if active && i == idx {
@@ -476,7 +476,7 @@ func (m Model) viewMenu(s styleSet) string {
 			} else {
 				b.WriteString(s.muted.Render(ps))
 			}
-			b.WriteString(" ")
+			b.WriteString(s.muted.Render(" "))
 		}
 		return b.String()
 	}
@@ -484,12 +484,15 @@ func (m Model) viewMenu(s styleSet) string {
 	// The theme row can outgrow a narrow terminal, so it wraps onto
 	// further lines indented to line up under the label - the same
 	// pattern viewWords uses for wrapping the word list itself.
+	// indentWidth tracks the plain visible width for wrap math;
+	// indentStyled is the actual (background-styled) string written.
 	renderThemeRow := func(maxWidth int) string {
 		label := "theme"
-		indent := strings.Repeat(" ", len(label)+2)
+		indentWidth := len(label) + 2
+		indentStyled := s.muted.Render(strings.Repeat(" ", indentWidth))
 		lines := []strings.Builder{{}}
-		lines[0].WriteString(s.modeOn.Render(label) + "  ")
-		curLen := len(label) + 2
+		lines[0].WriteString(s.modeOn.Render(label) + s.muted.Render("  "))
+		curLen := indentWidth
 
 		for i, t := range themes {
 			entry := t.Name
@@ -497,17 +500,17 @@ func (m Model) viewMenu(s styleSet) string {
 				entry = "[" + t.Name + "]"
 			}
 			entryLen := len(entry) + 1
-			if curLen+entryLen > maxWidth && curLen > len(indent) {
+			if curLen+entryLen > maxWidth && curLen > indentWidth {
 				lines = append(lines, strings.Builder{})
-				lines[len(lines)-1].WriteString(indent)
-				curLen = len(indent)
+				lines[len(lines)-1].WriteString(indentStyled)
+				curLen = indentWidth
 			}
 			if i == m.themeIdx {
 				lines[len(lines)-1].WriteString(s.accent.Render(entry))
 			} else {
 				lines[len(lines)-1].WriteString(s.muted.Render(entry))
 			}
-			lines[len(lines)-1].WriteString(" ")
+			lines[len(lines)-1].WriteString(s.muted.Render(" "))
 			curLen += entryLen
 		}
 
@@ -646,10 +649,10 @@ func (m Model) viewWords(s styleSet) string {
 	}
 	for i := 0; i < limit; i++ {
 		content, visLen, caretAtEnd := renderWord(i)
-		sep := " "
+		sep := s.muted.Render(" ")
 		sepLen := 1
 		if caretAtEnd {
-			sep = s.caret.Render(caretGlyph) + " "
+			sep = s.caret.Render(caretGlyph) + s.muted.Render(" ")
 			sepLen = 2
 		}
 		push(content, sep, visLen+sepLen)
@@ -738,7 +741,7 @@ func (m Model) viewResults(s styleSet) string {
 		b.WriteString("\n\n")
 	}
 
-	statStyle := lipgloss.NewStyle().Width(14)
+	statStyle := lipgloss.NewStyle().Width(14).Background(s.bg)
 	stat := func(label string, value string) string {
 		return statStyle.Render(s.statLabel.Render(label) + "\n" + s.bigStat.Render(value))
 	}
@@ -772,7 +775,7 @@ func (m Model) viewResults(s styleSet) string {
 		var w strings.Builder
 		for i, wk := range weak {
 			if i > 0 {
-				w.WriteString(" ")
+				w.WriteString(s.muted.Render(" "))
 			}
 			w.WriteString(s.fg.Render(wk.char) + s.muted.Render(fmt.Sprintf("(%d)", wk.count)))
 		}
