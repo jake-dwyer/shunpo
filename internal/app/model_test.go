@@ -6,6 +6,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/jake-dwyer/shunpo/internal/store"
 )
 
 func send(m Model, msg tea.KeyMsg) Model {
@@ -271,6 +273,94 @@ func TestNoDoubleSpaceAfterWordCompletion(t *testing.T) {
 	out := m.viewWords(m.styles())
 	if strings.Contains(stripANSI(out), "  ") {
 		t.Fatalf("expected no double space in rendered words, got %q", stripANSI(out))
+	}
+}
+
+func TestPlainNewDoesNotPersist(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	m := New(WordsConfig(1))
+	m.targetWords = []string{"go"}
+	m = typeString(m, "go")
+	if m.state != stateDone {
+		t.Fatalf("expected stateDone, got %v", m.state)
+	}
+
+	loaded := store.Load()
+	if len(loaded.Records) != 0 {
+		t.Fatalf("expected New() (non-persisting) to leave disk state untouched, got %+v", loaded.Records)
+	}
+}
+
+func TestMenuChangePersistsSettings(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	m := NewWithStore(TimeConfig(30), store.Store{Records: map[string]store.Record{}, Typos: map[string]int{}})
+	m = send(m, tea.KeyMsg{Type: tea.KeyTab})                       // open palette
+	m = send(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}}) // cycle theme
+
+	loaded := store.Load()
+	wantTheme := themes[m.themeIdx].Name
+	if loaded.Settings.Theme != wantTheme {
+		t.Fatalf("expected persisted theme %q, got %q", wantTheme, loaded.Settings.Theme)
+	}
+}
+
+func TestFinishRecordsPRAndTypos(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	m := NewWithStore(WordsConfig(1), store.Store{Records: map[string]store.Record{}, Typos: map[string]int{}})
+	m.targetWords = []string{"the"}
+	m = typeString(m, "the")
+
+	if m.state != stateDone {
+		t.Fatalf("expected stateDone, got %v", m.state)
+	}
+	if !m.result.IsPR {
+		t.Fatal("expected first completion of a config to count as a new best")
+	}
+
+	key := recordKey(m.cfg)
+	loaded := store.Load()
+	rec, ok := loaded.Records[key]
+	if !ok || rec.WPM != m.result.WPM {
+		t.Fatalf("expected persisted record for %q matching result, got %+v ok=%v", key, rec, ok)
+	}
+}
+
+func TestFinishTalliesTyposByTargetChar(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	m := NewWithStore(WordsConfig(1), store.Store{Records: map[string]store.Record{}, Typos: map[string]int{}})
+	m.targetWords = []string{"the"}
+	m = typeString(m, "tha") // 'a' mistyped for target 'e' at index 2
+
+	if m.state != stateDone {
+		t.Fatalf("expected stateDone, got %v", m.state)
+	}
+	loaded := store.Load()
+	if loaded.Typos["e"] != 1 {
+		t.Fatalf("expected typo tally for 'e' to be 1, got %d (full map %+v)", loaded.Typos["e"], loaded.Typos)
+	}
+}
+
+func TestSparklineProducesRequestedWidth(t *testing.T) {
+	out := sparkline([]float64{10, 20, 30, 20, 10}, 8)
+	if len([]rune(out)) != 8 {
+		t.Fatalf("expected sparkline of width 8, got %d runes (%q)", len([]rune(out)), out)
+	}
+	if sparkline(nil, 8) != "" {
+		t.Fatal("expected empty sparkline for no data")
+	}
+}
+
+func TestTopWeakKeysSortedDescending(t *testing.T) {
+	m := New(WordsConfig(1))
+	m.store.Typos = map[string]int{"e": 5, "t": 9, "a": 1}
+
+	top := m.topWeakKeys(2)
+	if len(top) != 2 || top[0].char != "t" || top[1].char != "e" {
+		t.Fatalf("expected [t(9) e(5)], got %+v", top)
 	}
 }
 

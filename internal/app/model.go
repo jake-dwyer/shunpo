@@ -2,12 +2,14 @@ package app
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/jake-dwyer/shunpo/internal/store"
 	"github.com/jake-dwyer/shunpo/internal/words"
 )
 
@@ -36,9 +38,10 @@ var wordPresets = []int{10, 25, 50, 100}
 
 type tickMsg time.Time
 
-// Config is the starting mode/duration, typically from CLI flags. It need
-// not match a preset exactly; presets only drive the in-app settings
-// palette (see menuFocused) and default to their closest entry.
+// Config is the starting mode/duration, typically from CLI flags or saved
+// settings. It need not match a preset exactly; presets only drive the
+// in-app settings palette (see menuFocused) and default to their closest
+// entry.
 type Config struct {
 	Mode     testMode
 	Seconds  int
@@ -48,6 +51,18 @@ type Config struct {
 
 func TimeConfig(seconds int) Config { return Config{Mode: modeTime, Seconds: seconds} }
 func WordsConfig(words int) Config  { return Config{Mode: modeWords, WordGoal: words} }
+
+// ToSettings converts a Config into the persisted shape, so whatever a
+// process launches with - via flags or remembered state - can be written
+// back as the new remembered default even if the user quits without
+// finishing a test or touching the settings palette.
+func (c Config) ToSettings() store.Settings {
+	mode := "time"
+	if c.Mode == modeWords {
+		mode = "words"
+	}
+	return store.Settings{Mode: mode, Seconds: c.Seconds, WordGoal: c.WordGoal, Theme: c.Theme}
+}
 
 type Model struct {
 	cfg Config
@@ -75,20 +90,44 @@ type Model struct {
 
 	keyCorrect   int
 	keyIncorrect int
+	typoTally    map[string]int // per-test; merged into store.Typos on finish
+
+	wpmHistory []float64 // ~1 sample/sec while typing, for the results sparkline
+	lastSample time.Time
 
 	start   time.Time
 	elapsed time.Duration
 	result  Result
 	width   int
 	height  int
+
+	// store is shunpo's cross-session state (settings/records/typos).
+	// persist gates whether changes get written to disk: true for the
+	// real CLI (NewWithStore), false for New(), which tests use and
+	// which must never touch the user's actual state file.
+	store   store.Store
+	persist bool
 }
 
 func New(cfg Config) Model {
+	m := newModel(cfg, store.Store{Records: map[string]store.Record{}, Typos: map[string]int{}})
+	m.persist = false
+	return m
+}
+
+func NewWithStore(cfg Config, st store.Store) Model {
+	m := newModel(cfg, st)
+	m.persist = true
+	return m
+}
+
+func newModel(cfg Config, st store.Store) Model {
 	m := Model{
 		cfg:      cfg,
 		timeIdx:  nearestIndex(timePresets, cfg.Seconds, 2),
 		wordsIdx: nearestIndex(wordPresets, cfg.WordGoal, 1),
 		themeIdx: themeIndexByName(cfg.Theme),
+		store:    st,
 	}
 	m.reset()
 	return m
@@ -118,8 +157,38 @@ func (m *Model) reset() {
 	m.wordIdx = 0
 	m.keyCorrect = 0
 	m.keyIncorrect = 0
+	m.typoTally = map[string]int{}
+	m.wpmHistory = nil
+	m.lastSample = time.Time{}
 	m.state = stateReady
 	m.elapsed = 0
+	m.result = Result{}
+}
+
+func (m *Model) syncSettings() {
+	mode := "time"
+	if m.cfg.Mode == modeWords {
+		mode = "words"
+	}
+	m.store.Settings = store.Settings{
+		Mode:     mode,
+		Seconds:  m.cfg.Seconds,
+		WordGoal: m.cfg.WordGoal,
+		Theme:    themes[m.themeIdx].Name,
+	}
+}
+
+func (m *Model) maybeSave() {
+	if m.persist {
+		_ = m.store.Save()
+	}
+}
+
+func recordKey(cfg Config) string {
+	if cfg.Mode == modeTime {
+		return store.RecordKey("time", cfg.Seconds)
+	}
+	return store.RecordKey("words", cfg.WordGoal)
 }
 
 func (m Model) Init() tea.Cmd {
@@ -136,6 +205,13 @@ func (m *Model) timeLimit() time.Duration {
 	return time.Duration(m.cfg.Seconds) * time.Second
 }
 
+// liveWPM is the net WPM so far, using the same formula as the final
+// result - used to sample the in-progress sparkline.
+func (m Model) liveWPM() float64 {
+	r := computeResult(m.completed, m.current, m.currentTarget(), m.keyCorrect, m.keyIncorrect, m.elapsed)
+	return r.WPM
+}
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -147,6 +223,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.elapsed = time.Since(m.start)
+		if time.Since(m.lastSample) >= time.Second {
+			m.wpmHistory = append(m.wpmHistory, m.liveWPM())
+			m.lastSample = time.Now()
+		}
 		if m.cfg.Mode == modeTime && m.elapsed >= m.timeLimit() {
 			m.finish()
 			return m, nil
@@ -207,22 +287,32 @@ func (m Model) handleMenuKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cfg.Mode = modeTime
 		m.cfg.Seconds = timePresets[m.timeIdx]
 		m.reset()
+		m.syncSettings()
+		m.maybeSave()
 	case 'w':
 		m.cfg.Mode = modeWords
 		m.cfg.WordGoal = wordPresets[m.wordsIdx]
 		m.reset()
+		m.syncSettings()
+		m.maybeSave()
 	case 'c':
 		m.themeIdx = (m.themeIdx + 1) % len(themes)
+		m.syncSettings()
+		m.maybeSave()
 	case '1', '2', '3', '4', '5':
 		idx := int(r - '1')
 		if m.cfg.Mode == modeTime && idx < len(timePresets) {
 			m.timeIdx = idx
 			m.cfg.Seconds = timePresets[idx]
 			m.reset()
+			m.syncSettings()
+			m.maybeSave()
 		} else if m.cfg.Mode == modeWords && idx < len(wordPresets) {
 			m.wordsIdx = idx
 			m.cfg.WordGoal = wordPresets[idx]
 			m.reset()
+			m.syncSettings()
+			m.maybeSave()
 		}
 	}
 	return m, nil
@@ -268,6 +358,7 @@ func (m Model) handleTypingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.state == stateReady {
 			m.state = stateTyping
 			m.start = time.Now()
+			m.lastSample = m.start
 			cmd = tickCmd()
 		}
 		isLastWord := m.cfg.Mode == modeWords && m.wordIdx == len(m.targetWords)-1
@@ -278,6 +369,7 @@ func (m Model) handleTypingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.keyCorrect++
 				} else {
 					m.keyIncorrect++
+					m.typoTally[string(target[pos])]++
 				}
 			} else {
 				m.keyIncorrect++
@@ -312,6 +404,24 @@ func (m *Model) finish() {
 	}
 	m.elapsed = dur
 	m.result = computeResult(m.completed, m.current, m.currentTarget(), m.keyCorrect, m.keyIncorrect, dur)
+
+	for ch, n := range m.typoTally {
+		m.store.Typos[ch] += n
+	}
+
+	key := recordKey(m.cfg)
+	prev, existed := m.store.Records[key]
+	m.result.PrevBest = prev.WPM
+	if !existed || m.result.WPM > prev.WPM {
+		m.result.IsPR = true
+		m.store.Records[key] = store.Record{
+			WPM:      m.result.WPM,
+			Accuracy: m.result.Accuracy,
+			Date:     time.Now().Format("2006-01-02"),
+		}
+	}
+
+	m.maybeSave()
 }
 
 func (m Model) theme() Theme {
@@ -323,20 +433,24 @@ func (m Model) styles() styleSet {
 }
 
 func (m Model) View() string {
-	if m.width == 0 {
+	if m.width == 0 || m.height == 0 {
 		return ""
 	}
+	s := m.styles()
+	var content string
 	switch m.state {
 	case stateDone:
-		return m.viewResults()
+		content = m.viewResults(s)
 	default:
-		return m.viewTyping()
+		content = m.viewTyping(s)
 	}
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content,
+		lipgloss.WithWhitespaceBackground(s.bg))
 }
 
 func (m Model) viewHeader(s styleSet) string {
 	var b strings.Builder
-	b.WriteString(s.title.Render("shunpo") + "  ")
+	b.WriteString(s.title.Render("瞬歩 shunpo") + "  ")
 
 	if m.cfg.Mode == modeTime {
 		b.WriteString(s.modeOn.Render(fmt.Sprintf("time %d", m.cfg.Seconds)))
@@ -344,7 +458,7 @@ func (m Model) viewHeader(s styleSet) string {
 		b.WriteString(s.modeOn.Render(fmt.Sprintf("words %d", m.cfg.WordGoal)))
 	}
 	if !m.menuFocused {
-		b.WriteString(s.help.Render("   tab: settings"))
+		b.WriteString("   " + hintLine(s, "tab", " settings"))
 	}
 	return b.String()
 }
@@ -389,13 +503,13 @@ func (m Model) viewMenu(s styleSet) string {
 	b.WriteString(renderRow("words", wordPresets, m.wordsIdx, m.cfg.Mode == modeWords))
 	b.WriteString("\n")
 	b.WriteString(renderThemeRow())
-	b.WriteString("\n")
-	b.WriteString(s.help.Render("t/w mode  ·  1-5 preset  ·  c theme  ·  enter/esc/tab close"))
-	return b.String()
+	b.WriteString("\n\n")
+	b.WriteString(hintLine(s, "t", "/", "w", " mode   ", "1-5", " preset   ", "c", " theme   ", "enter", " close"))
+
+	return s.border.Render(b.String())
 }
 
-func (m Model) viewTyping() string {
-	s := m.styles()
+func (m Model) viewTyping(s styleSet) string {
 	var b strings.Builder
 	b.WriteString(m.viewHeader(s))
 	b.WriteString("\n\n")
@@ -417,15 +531,29 @@ func (m Model) viewTyping() string {
 	b.WriteString("\n\n")
 
 	b.WriteString(m.viewWords(s))
-	b.WriteString("\n")
+	b.WriteString("\n\n")
 
-	b.WriteString(s.help.Render("esc quit  ·  enter restart  ·  tab settings"))
+	b.WriteString(hintLine(s, "esc", " quit   ", "enter", " restart   ", "tab", " settings"))
 	return b.String()
 }
 
-const wrapWidth = 70
+// caretGlyph is a thin insertion-point bar, matching monkeytype's caret
+// style, rather than a solid block covering a character cell.
+const caretGlyph = "│"
+
+func (m Model) wrapWidth() int {
+	w := m.width - 12
+	if w > 100 {
+		w = 100
+	}
+	if w < 30 {
+		w = 30
+	}
+	return w
+}
 
 func (m Model) viewWords(s styleSet) string {
+	wrapWidth := m.wrapWidth()
 	var lines []strings.Builder
 	lines = append(lines, strings.Builder{})
 	lineLen := 0
@@ -441,11 +569,10 @@ func (m Model) viewWords(s styleSet) string {
 	}
 
 	// renderWord returns the styled word content, its visible width
-	// (excluding the trailing separator), and whether the cursor
+	// (excluding the trailing separator), and whether the caret
 	// currently sits right after it (i.e. it's the current word and
-	// fully typed) - in which case the single separator space that
-	// follows should be rendered as the cursor block rather than a
-	// second, plain space stacked on top of it.
+	// fully typed) - in which case the caret is drawn as part of the
+	// separator instead of a second element stacked on top of it.
 	renderWord := func(idx int) (string, int, bool) {
 		target := m.targetWords[idx]
 		var typed string
@@ -457,30 +584,33 @@ func (m Model) viewWords(s styleSet) string {
 		}
 
 		var w strings.Builder
+		visLen := 0
 		for i, tc := range target {
 			ch := string(tc)
-			switch {
-			case i < len(typed):
+			if i < len(typed) {
 				if typed[i] == byte(tc) {
 					w.WriteString(s.fg.Render(ch))
 				} else {
 					w.WriteString(s.err.Bold(true).Render(ch))
 				}
-			case isCurrent && i == len(typed):
-				w.WriteString(s.cursor.Render(ch))
-			default:
-				w.WriteString(s.muted.Render(ch))
+				visLen++
+				continue
 			}
+			if isCurrent && i == len(typed) {
+				w.WriteString(s.caret.Render(caretGlyph))
+				visLen++
+			}
+			w.WriteString(s.muted.Render(ch))
+			visLen++
 		}
-		visLen := len([]rune(target))
 		if len(typed) > len(target) {
 			extra := typed[len(target):]
 			w.WriteString(s.err.Underline(true).Render(extra))
 			visLen += len(extra)
 		}
 
-		cursorAtEnd := isCurrent && len(typed) >= len(target)
-		return w.String(), visLen, cursorAtEnd
+		caretAtEnd := isCurrent && len(typed) >= len(target)
+		return w.String(), visLen, caretAtEnd
 	}
 
 	limit := len(m.targetWords)
@@ -488,12 +618,14 @@ func (m Model) viewWords(s styleSet) string {
 		limit = 60
 	}
 	for i := 0; i < limit; i++ {
-		content, visLen, cursorAtEnd := renderWord(i)
+		content, visLen, caretAtEnd := renderWord(i)
 		sep := " "
-		if cursorAtEnd {
-			sep = s.cursor.Render(" ")
+		sepLen := 1
+		if caretAtEnd {
+			sep = s.caret.Render(caretGlyph) + " "
+			sepLen = 2
 		}
-		push(content, sep, visLen+1)
+		push(content, sep, visLen+sepLen)
 	}
 
 	var out []string
@@ -503,12 +635,82 @@ func (m Model) viewWords(s styleSet) string {
 	return strings.Join(out, "\n")
 }
 
-func (m Model) viewResults() string {
-	s := m.styles()
-	var b strings.Builder
-	b.WriteString(s.title.Render("shunpo") + "\n\n")
+var sparkChars = []rune("▁▂▃▄▅▆▇█")
 
+func sparkline(vals []float64, width int) string {
+	if len(vals) == 0 || width <= 0 {
+		return ""
+	}
+	minV, maxV := vals[0], vals[0]
+	for _, v := range vals {
+		if v < minV {
+			minV = v
+		}
+		if v > maxV {
+			maxV = v
+		}
+	}
+	span := maxV - minV
+	if span == 0 {
+		span = 1
+	}
+	n := len(vals)
+	out := make([]rune, width)
+	for i := 0; i < width; i++ {
+		idx := i * n / width
+		if idx >= n {
+			idx = n - 1
+		}
+		level := int((vals[idx] - minV) / span * float64(len(sparkChars)-1))
+		if level < 0 {
+			level = 0
+		}
+		if level > len(sparkChars)-1 {
+			level = len(sparkChars) - 1
+		}
+		out[i] = sparkChars[level]
+	}
+	return string(out)
+}
+
+type weakKey struct {
+	char  string
+	count int
+}
+
+func (m Model) topWeakKeys(n int) []weakKey {
+	out := make([]weakKey, 0, len(m.store.Typos))
+	for ch, c := range m.store.Typos {
+		if c > 0 {
+			out = append(out, weakKey{char: ch, count: c})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].count != out[j].count {
+			return out[i].count > out[j].count
+		}
+		return out[i].char < out[j].char
+	})
+	if len(out) > n {
+		out = out[:n]
+	}
+	return out
+}
+
+func (m Model) viewResults(s styleSet) string {
 	r := m.result
+	var b strings.Builder
+	b.WriteString(s.title.Render("瞬歩 shunpo") + "\n\n")
+
+	if r.IsPR {
+		if r.PrevBest > 0 {
+			b.WriteString(s.accent.Render(fmt.Sprintf("new best!  (was %.0f wpm)", r.PrevBest)))
+		} else {
+			b.WriteString(s.accent.Render("new best!"))
+		}
+		b.WriteString("\n\n")
+	}
+
 	statStyle := lipgloss.NewStyle().Width(14)
 	stat := func(label string, value string) string {
 		return statStyle.Render(s.statLabel.Render(label) + "\n" + s.bigStat.Render(value))
@@ -522,8 +724,36 @@ func (m Model) viewResults() string {
 	)
 	b.WriteString(row)
 	b.WriteString("\n\n")
-	b.WriteString(s.muted.Render(fmt.Sprintf("correct %d  ·  incorrect %d", r.Correct, r.Incorrect)))
-	b.WriteString("\n\n")
-	b.WriteString(s.help.Render("tab restart  ·  esc quit"))
+
+	if spark := sparkline(m.wpmHistory, 40); spark != "" {
+		b.WriteString(s.accent.Render(spark))
+		b.WriteString("\n\n")
+	}
+
+	b.WriteString(s.statLabel.Render("characters ") + s.fg.Render(fmt.Sprintf("%d", r.CharsCorrect)) +
+		s.muted.Render("/") + s.err.Render(fmt.Sprintf("%d", r.CharsIncorrect)) +
+		s.muted.Render("/") + s.accent.Render(fmt.Sprintf("%d", r.CharsExtra)) +
+		s.muted.Render("/") + s.muted.Render(fmt.Sprintf("%d", r.CharsMissing)))
+	b.WriteString("\n")
+
+	if !r.IsPR && r.PrevBest > 0 {
+		b.WriteString(s.statLabel.Render("best       ") + s.muted.Render(fmt.Sprintf("%.0f wpm", r.PrevBest)))
+		b.WriteString("\n")
+	}
+
+	if weak := m.topWeakKeys(5); len(weak) > 0 {
+		var w strings.Builder
+		for i, wk := range weak {
+			if i > 0 {
+				w.WriteString(" ")
+			}
+			w.WriteString(s.fg.Render(wk.char) + s.muted.Render(fmt.Sprintf("(%d)", wk.count)))
+		}
+		b.WriteString(s.statLabel.Render("weak keys  ") + w.String())
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString(hintLine(s, "tab", " restart   ", "esc", " quit"))
 	return b.String()
 }
