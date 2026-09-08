@@ -68,26 +68,32 @@ func buildStyles(t Theme) styleSet {
 	muted := lipgloss.Color(t.Muted)
 	errC := lipgloss.Color(t.Error)
 
+	// Every style that renders an actual glyph carries its own explicit
+	// Background(bg). Relying on the outer Place() call's whitespace
+	// background isn't enough - that only paints the margin Place adds
+	// around the content block to center it, never the cells our own
+	// text occupies, so without this every glyph fell back to the host
+	// terminal's own default background (which is not guaranteed dark).
 	return styleSet{
 		bg:     bg,
 		panel:  panel,
-		accent: lipgloss.NewStyle().Foreground(accent).Bold(true),
-		muted:  lipgloss.NewStyle().Foreground(muted),
-		fg:     lipgloss.NewStyle().Foreground(fg),
-		err:    lipgloss.NewStyle().Foreground(errC),
-		caret:  lipgloss.NewStyle().Foreground(accent),
+		accent: lipgloss.NewStyle().Foreground(accent).Background(bg).Bold(true),
+		muted:  lipgloss.NewStyle().Foreground(muted).Background(bg),
+		fg:     lipgloss.NewStyle().Foreground(fg).Background(bg),
+		err:    lipgloss.NewStyle().Foreground(errC).Background(bg),
+		caret:  lipgloss.NewStyle().Foreground(accent).Background(bg),
 
-		title: lipgloss.NewStyle().Foreground(accent).Bold(true),
-		help:  lipgloss.NewStyle().Foreground(muted),
+		title: lipgloss.NewStyle().Foreground(accent).Background(bg).Bold(true),
+		help:  lipgloss.NewStyle().Foreground(muted).Background(bg),
 		kbd:   lipgloss.NewStyle().Foreground(fg).Background(panel).Padding(0, 1),
 
-		modeOn:  lipgloss.NewStyle().Foreground(accent).Bold(true),
-		modeOff: lipgloss.NewStyle().Foreground(muted),
+		modeOn:  lipgloss.NewStyle().Foreground(accent).Background(bg).Bold(true),
+		modeOff: lipgloss.NewStyle().Foreground(muted).Background(bg),
 
-		bigStat:   lipgloss.NewStyle().Foreground(accent).Bold(true),
-		statLabel: lipgloss.NewStyle().Foreground(muted),
+		bigStat:   lipgloss.NewStyle().Foreground(accent).Background(bg).Bold(true),
+		statLabel: lipgloss.NewStyle().Foreground(muted).Background(bg),
 
-		border: lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(muted).Padding(0, 2),
+		border: lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(muted).BorderBackground(bg).Background(bg).Padding(0, 2),
 	}
 }
 
