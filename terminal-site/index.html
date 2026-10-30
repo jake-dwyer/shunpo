@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#000000">
+  <meta name="description" content="Flash step. A minimalist typing test for your terminal. Get faster while your build gets slower.">
+  <title>shunpo - flash step.</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="demo-frames.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header>
+    <nav aria-label="Main navigation">
+      <a class="active" href="#terminal" aria-current="page">shunpo<span class="cursor" aria-hidden="true">_</span></a>
+      <a href="#usage">usage</a>
+      <a href="#themes">themes</a>
+      <a href="#readme">readme</a>
+    </nav>
+    <a class="source" href="https://github.com/jake-dwyer/shunpo" target="_blank" rel="noreferrer">github <span aria-hidden="true">↗</span></a>
+  </header>
+  <main>
+    <section id="terminal" aria-label="Install shunpo">
+      <pre class="speedlines" aria-hidden="true">                               ╱    ╱     ╱    ╱    ╱  ╱       ╱╱  ╱    ╱ ╱
+                              ╱    ╱     ╱    ╱    ╱  ╱       ╱╱  ╱    ╱
+                             ╱    ╱     ╱    ╱ ╱  ╱  ╱        ╱  ╱    ╱
+                            ╱    ╱     ╱    ╱ ╱  ╱  ╱        ╱  ╱    ╱
+                         ╱ ╱    ╱     ╱    ╱ ╱  ╱    ╱      ╱  ╱    ╱    ╱
+                        ╱ ╱    ╱     ╱    ╱ ╱  ╱    ╱      ╱  ╱         ╱
+                       ╱ ╱    ╱     ╱    ╱ ╱  ╱    ╱      ╱  ╱         ╱
+                      ╱ ╱    ╱     ╱    ╱ ╱       ╱      ╱  ╱         ╱
+                     ╱ ╱    ╱     ╱ ╱  ╱ ╱       ╱      ╱            ╱
+                    ╱ ╱    ╱     ╱ ╱  ╱ ╱       ╱      ╱            ╱
+                   ╱ ╱    ╱     ╱ ╱    ╱       ╱      ╱            ╱
+                  ╱ ╱    ╱     ╱ ╱    ╱       ╱        ╱          ╱
+             ╱   ╱ ╱    ╱     ╱ ╱    ╱       ╱        ╱
+            ╱   ╱ ╱    ╱ ╱     ╱    ╱       ╱        ╱
+           ╱   ╱ ╱    ╱ ╱     ╱    ╱                ╱
+          ╱   ╱ ╱      ╱     ╱    ╱                ╱
+         ╱   ╱ ╱      ╱     ╱                     ╱
+        ╱   ╱ ╱      ╱     ╱
+       ╱   ╱        ╱     ╱
+      ╱   ╱        ╱
+     ╱            ╱
+    ╱</pre>
+      <ol class="code">
+        <li class="comment"># flash step. a typing test for your terminal.</li>
+        <li class="blank" aria-hidden="true">&nbsp;</li>
+        <li class="comment"># for the moments between builds, deploys,<br>and whatever your agent is doing.</li>
+        <li class="blank" aria-hidden="true">&nbsp;</li>
+        <li class="comment"># install with go</li>
+        <li><div class="command"><code>go install github.com/jake-dwyer/shunpo@latest</code><button class="copy" data-copy="go install github.com/jake-dwyer/shunpo@latest" aria-label="Copy install command">[copy]</button></div></li>
+        <li class="blank" aria-hidden="true">&nbsp;</li>
+        <li class="comment"># open a spare pane. make a little progress.</li>
+        <li><div class="command"><code>shunpo</code><span class="block-cursor" aria-hidden="true"></span></div></li>
+        <li class="blank" aria-hidden="true">&nbsp;</li>
+        <li class="comment features">30 seconds · just type · find your flow</li>
+      </ol>
+      <div class="home-demo">
+        <p class="demo-caption"># a quick look <span>animated demo</span></p>
+        <div class="preview" data-demo="auto" aria-label="Animated example of a shunpo typing test"></div>
+        <a class="demo-link" href="#themes">find your theme ↗</a>
+      </div>
+    </section>
+    <section id="usage" aria-label="Usage" hidden>
+      <ol class="code">
+        <li class="comment"># a small practice. at your own pace.</li>
+        <li class="blank">&nbsp;</li>
+        <li><code>shunpo</code><span class="annotation"># 30 seconds on your first run</span></li>
+        <li><code>shunpo -time 60</code><span class="annotation"># take a minute</span></li>
+        <li><code>shunpo -words 50</code><span class="annotation"># finish 50 words</span></li>
+        <li><code>shunpo -theme dracula</code><span class="annotation"># set the mood</span></li>
+        <li class="blank">&nbsp;</li>
+        <li class="comment"># your keyboard is all you need</li>
+        <li><kbd>tab</kbd><span class="annotation">settings · restart from results</span></li>
+        <li><kbd>enter</kbd><span class="annotation">fresh words, same settings</span></li>
+        <li><kbd>esc</kbd><span class="annotation">quit · close settings when open</span></li>
+        <li class="blank">&nbsp;</li>
+        <li class="comment"># last-used settings are remembered.</li>
+      </ol>
+    </section>
+    <section id="themes" aria-label="Color themes" hidden>
+      <ol class="code">
+        <li class="comment"># a familiar place for your fingers.</li>
+        <li class="comment"># pick a palette. see it in motion.</li>
+        <li class="blank">&nbsp;</li>
+        <li><div id="theme-options" aria-label="Choose a theme"></div></li>
+        <li class="blank">&nbsp;</li>
+        <li><div class="preview" data-demo="selected" aria-label="Animated preview of the selected theme"></div></li>
+        <li class="blank">&nbsp;</li>
+        <li><div class="command"><code id="theme-command">shunpo -theme serika</code><button id="copy-theme" class="copy" data-copy="shunpo -theme serika" aria-label="Copy theme command">[copy]</button></div></li>
+      </ol>
+    </section>
+    <section id="readme" aria-label="About shunpo" hidden>
+      <ol class="code">
+        <li class="comment"># shunpo / flash step</li>
+        <li class="blank">&nbsp;</li>
+        <li>A monkeytype-style typing test.<br>Right where you're already working.</li>
+        <li class="blank">&nbsp;</li>
+        <li class="comment"># type. finish. see how you did.</li>
+        <li>wpm · accuracy · raw speed · duration</li>
+        <li class="comment">Personal bests saved for each test configuration.<br>Your settings and records stay on your machine.</li>
+        <li class="blank">&nbsp;</li>
+        <li class="comment"># built with go + bubble tea. open source.</li>
+        <li><a href="https://github.com/jake-dwyer/shunpo">read the source ↗</a><span class="annotation">MIT license</span></li>
+      </ol>
+    </section>
+  </main>
+  <footer><span>shunpo <span class="muted">/ 瞬歩</span></span><span class="muted">a little faster, a little better.</span><span class="footer-right">made for your terminal.</span></footer>
+  <div id="announcement" class="sr-only" role="status" aria-live="polite"></div>
+</body>
+</html>

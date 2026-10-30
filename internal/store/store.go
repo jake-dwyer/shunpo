@@ -46,7 +46,7 @@ func empty() Store {
 }
 
 // RecordKey identifies a test configuration for personal-best tracking,
-// e.g. "time:30" or "words:50" — records are kept per exact mode+length,
+// e.g. "time:30" or "words:50" - records are kept per exact mode+length,
 // matching how monkeytype tracks a separate best for each test length.
 func RecordKey(mode string, value int) string {
 	return fmt.Sprintf("%s:%d", mode, value)

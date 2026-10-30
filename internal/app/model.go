@@ -572,7 +572,7 @@ func (m Model) View() string {
 func (m Model) viewHeader(s styleSet) string {
 	var b strings.Builder
 	b.WriteString(s.title.Render("瞬歩 shunpo") + s.muted.Render("  "))
-	b.WriteString(s.accent.Render("☆") + s.muted.Render("  "))
+	b.WriteString(s.accent.Render("✿") + s.muted.Render("  "))
 
 	if m.cfg.Mode == modeTime {
 		b.WriteString(s.modeOn.Render(fmt.Sprintf("time %d", m.cfg.Seconds)))
