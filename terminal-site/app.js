@@ -1,13 +1,33 @@
 const sections = [...document.querySelectorAll('main section')];
-const links = [...document.querySelectorAll('nav a')];
+const mainEl = document.querySelector('main');
+const SECTION_LABEL = { terminal: 'shunpo', usage: 'usage', readme: 'readme' };
+
+// paneTree is null in normal single-section mode. Once a tab is dropped
+// into the content area it becomes a binary tree - { type:'split', dir,
+// sizes:[a,b], children:[node,node] } with 'leaf' nodes at the ends
+// holding a sectionId - so dropping onto an already-split pane nests
+// another split inside it (that's how you get thirds, quarters, ...),
+// same as a real terminal multiplexer.
+let paneTree = null;
+let nextPaneId = 1;
+const leaf = sectionId => ({ type: 'leaf', paneId: nextPaneId++, sectionId });
 
 function navigate() {
+  paneTree = null;
+  mainEl.classList.remove('panes');
+  for (const child of [...mainEl.children]) {
+    if (child.tagName !== 'SECTION') child.remove();
+  }
   const requested = location.hash.slice(1) || 'terminal';
   const page = sections.some(section => section.id === requested) ? requested : 'terminal';
-  for (const section of sections) section.hidden = section.id !== page;
-  for (const link of links) {
+  for (const section of sections) {
+    if (section.parentElement !== mainEl) mainEl.appendChild(section);
+    section.hidden = section.id !== page;
+  }
+  for (const tab of document.querySelectorAll('#tabs .tab')) {
+    const link = tab.querySelector('a');
     const active = link.hash === `#${page}`;
-    link.classList.toggle('active', active);
+    tab.classList.toggle('active', active);
     if (active) link.setAttribute('aria-current', 'page');
     else link.removeAttribute('aria-current');
   }
@@ -15,6 +35,225 @@ function navigate() {
 
 window.addEventListener('hashchange', navigate);
 navigate();
+
+window.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && paneTree) navigate();
+});
+
+document.querySelectorAll('.tab-close').forEach(button => {
+  button.addEventListener('click', () => {
+    button.closest('.tab').remove();
+    navigate();
+  });
+});
+
+// Drag a tab to reorder it within the bar, or drop it into (or onto an
+// existing pane of) the content area to split the view - snap preview
+// follows the cursor, like a window manager's split-screen hint.
+const tabsNav = document.querySelector('#tabs');
+const splitHint = document.querySelector('#split-hint');
+let dragTab = null;
+let hoverPaneId = null;
+
+function findLeaf(node, paneId) {
+  if (node.type === 'leaf') return node.paneId === paneId ? node : null;
+  for (const child of node.children) {
+    const found = findLeaf(child, paneId);
+    if (found) return found;
+  }
+  return null;
+}
+
+function removeSection(node, sectionId) {
+  if (node.type === 'leaf') return node;
+  for (let i = 0; i < 2; i++) {
+    const child = node.children[i];
+    if (child.type === 'leaf' && child.sectionId === sectionId) return node.children[1 - i];
+  }
+  node.children = node.children.map(child => removeSection(child, sectionId));
+  return node;
+}
+
+function splitPane(targetPaneId, droppedId, side) {
+  const dir = side === 'left' || side === 'right' ? 'row' : 'col';
+  const toFront = side === 'left' || side === 'top';
+
+  if (!paneTree) {
+    const activePage = sections.some(s => s.id === location.hash.slice(1)) ? location.hash.slice(1) : 'terminal';
+    if (droppedId === activePage) return;
+    const a = leaf(activePage), b = leaf(droppedId);
+    paneTree = { type: 'split', dir, sizes: [0.5, 0.5], children: toFront ? [b, a] : [a, b] };
+    mainEl.classList.add('panes');
+    renderPaneTree();
+    return;
+  }
+
+  const target = findLeaf(paneTree, targetPaneId);
+  if (!target || target.sectionId === droppedId) return;
+
+  // A section can only live in one pane at a time - evict it from
+  // wherever else it is before (re)placing it next to the target.
+  paneTree = removeSection(paneTree, droppedId);
+  if (paneTree.type === 'leaf') {
+    paneTree = { type: 'split', dir, sizes: [0.5, 0.5], children: toFront ? [leaf(droppedId), paneTree] : [paneTree, leaf(droppedId)] };
+    renderPaneTree();
+    return;
+  }
+
+  function recur(node) {
+    if (node.type === 'leaf') {
+      if (node.paneId !== targetPaneId) return node;
+      const kids = toFront ? [leaf(droppedId), node] : [node, leaf(droppedId)];
+      return { type: 'split', dir, sizes: [0.5, 0.5], children: kids };
+    }
+    node.children = node.children.map(recur);
+    return node;
+  }
+  paneTree = recur(paneTree);
+  renderPaneTree();
+}
+
+function closePane(paneId) {
+  if (paneTree.type === 'leaf') { navigate(); return; }
+  function recur(node) {
+    if (node.type !== 'split') return node;
+    for (let i = 0; i < 2; i++) {
+      const child = node.children[i];
+      if (child.type === 'leaf' && child.paneId === paneId) return node.children[1 - i];
+    }
+    node.children = node.children.map(recur);
+    return node;
+  }
+  paneTree = recur(paneTree);
+  if (paneTree.type === 'leaf') {
+    const sectionId = paneTree.sectionId;
+    paneTree = null;
+    mainEl.classList.remove('panes');
+    if (location.hash.slice(1) === sectionId) navigate();
+    else location.hash = sectionId;
+    return;
+  }
+  renderPaneTree();
+}
+
+function startResize(node, splitEl) {
+  return event => {
+    event.preventDefault();
+    const rect = splitEl.getBoundingClientRect();
+    const horizontal = node.dir === 'row';
+    const total = horizontal ? rect.width : rect.height;
+    const start = horizontal ? event.clientX : event.clientY;
+    const startA = node.sizes[0];
+    const divider = event.currentTarget;
+    divider.classList.add('resizing');
+    function onMove(e) {
+      const pos = horizontal ? e.clientX : e.clientY;
+      const a = Math.min(0.85, Math.max(0.15, startA + (pos - start) / total));
+      node.sizes = [a, 1 - a];
+      const [childA, , childB] = splitEl.children;
+      childA.style.flexGrow = String(a);
+      childB.style.flexGrow = String(1 - a);
+    }
+    function onUp() {
+      divider.classList.remove('resizing');
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+}
+
+function buildPane(node) {
+  if (node.type === 'leaf') {
+    const wrap = document.createElement('div');
+    wrap.className = 'pane';
+    wrap.dataset.paneId = node.paneId;
+    const bar = document.createElement('div');
+    bar.className = 'pane-bar';
+    const label = document.createElement('span');
+    label.textContent = SECTION_LABEL[node.sectionId] || node.sectionId;
+    const close = document.createElement('button');
+    close.className = 'pane-close';
+    close.setAttribute('aria-label', `Close ${label.textContent} pane`);
+    close.textContent = '×';
+    close.addEventListener('click', () => closePane(node.paneId));
+    bar.append(label, close);
+    const body = document.createElement('div');
+    body.className = 'pane-body';
+    const section = sections.find(s => s.id === node.sectionId);
+    section.hidden = false;
+    body.appendChild(section);
+    wrap.append(bar, body);
+    return wrap;
+  }
+  const splitEl = document.createElement('div');
+  splitEl.className = `pane-split pane-split-${node.dir}`;
+  const childA = buildPane(node.children[0]);
+  childA.style.flexGrow = String(node.sizes[0]);
+  const divider = document.createElement('div');
+  divider.className = 'pane-divider';
+  divider.addEventListener('mousedown', startResize(node, splitEl));
+  const childB = buildPane(node.children[1]);
+  childB.style.flexGrow = String(node.sizes[1]);
+  splitEl.append(childA, divider, childB);
+  return splitEl;
+}
+
+function renderPaneTree() {
+  mainEl.innerHTML = '';
+  mainEl.appendChild(buildPane(paneTree));
+}
+
+tabsNav.addEventListener('dragstart', event => {
+  dragTab = event.target.closest('.tab');
+  if (!dragTab) return;
+  dragTab.classList.add('dragging');
+  event.dataTransfer.effectAllowed = 'move';
+});
+tabsNav.addEventListener('dragend', () => {
+  if (dragTab) dragTab.classList.remove('dragging');
+  dragTab = null;
+  splitHint.hidden = true;
+});
+tabsNav.addEventListener('dragover', event => {
+  if (!dragTab) return;
+  event.preventDefault();
+  const siblings = [...tabsNav.querySelectorAll('.tab:not(.dragging)')];
+  const next = siblings.find(tab => event.clientX < tab.getBoundingClientRect().left + tab.offsetWidth / 2);
+  tabsNav.insertBefore(dragTab, next || document.querySelector('.tab-add'));
+});
+
+mainEl.addEventListener('dragover', event => {
+  if (!dragTab) return;
+  event.preventDefault();
+  const paneEl = event.target.closest('.pane');
+  hoverPaneId = paneEl ? paneEl.dataset.paneId : null;
+  const rect = paneEl ? paneEl.getBoundingClientRect() : mainEl.getBoundingClientRect();
+  const fx = (event.clientX - rect.left) / rect.width;
+  const fy = (event.clientY - rect.top) / rect.height;
+  const edge = Math.min(fx, 1 - fx, fy, 1 - fy);
+  const side = edge === fx ? 'left' : edge === 1 - fx ? 'right' : edge === fy ? 'top' : 'bottom';
+  splitHint.dataset.side = side;
+  let hx = rect.left, hy = rect.top, hw = rect.width, hh = rect.height;
+  if (side === 'left') hw /= 2;
+  else if (side === 'right') { hx += rect.width / 2; hw /= 2; }
+  else if (side === 'top') hh /= 2;
+  else { hy += rect.height / 2; hh /= 2; }
+  Object.assign(splitHint.style, { left: hx + 'px', top: hy + 'px', width: hw + 'px', height: hh + 'px' });
+  splitHint.hidden = false;
+});
+mainEl.addEventListener('dragleave', event => {
+  if (event.target === mainEl) splitHint.hidden = true;
+});
+mainEl.addEventListener('drop', event => {
+  if (!dragTab) return;
+  event.preventDefault();
+  splitHint.hidden = true;
+  if (paneTree && !hoverPaneId) return;
+  const droppedId = dragTab.querySelector('a').hash.slice(1);
+  splitPane(hoverPaneId ? Number(hoverPaneId) : null, droppedId, splitHint.dataset.side);
+});
 
 document.querySelectorAll('[data-copy]').forEach(button => {
   button.addEventListener('click', async () => {
@@ -35,198 +274,129 @@ document.querySelectorAll('[data-copy]').forEach(button => {
   });
 });
 
-const themes = [
-  {
-    "name": "serika",
-    "bg": "#232323",
-    "panel": "#2c2c2c",
-    "accent": "#e2b714",
-    "fg": "#d1d0c5",
-    "muted": "#646669",
-    "error": "#ca4754"
-  },
-  {
-    "name": "dracula",
-    "bg": "#282a36",
-    "panel": "#343746",
-    "accent": "#bd93f9",
-    "fg": "#f8f8f2",
-    "muted": "#6272a4",
-    "error": "#ff5555"
-  },
-  {
-    "name": "nord",
-    "bg": "#2e3440",
-    "panel": "#3b4252",
-    "accent": "#88c0d0",
-    "fg": "#e5e9f0",
-    "muted": "#4c566a",
-    "error": "#bf616a"
-  },
-  {
-    "name": "gruvbox",
-    "bg": "#282828",
-    "panel": "#3c3836",
-    "accent": "#fabd2f",
-    "fg": "#ebdbb2",
-    "muted": "#928374",
-    "error": "#fb4934"
-  },
-  {
-    "name": "monokai",
-    "bg": "#272822",
-    "panel": "#3e3d32",
-    "accent": "#a6e22e",
-    "fg": "#f8f8f2",
-    "muted": "#75715e",
-    "error": "#f92672"
-  },
-  {
-    "name": "tokyonight",
-    "bg": "#1a1b26",
-    "panel": "#24283b",
-    "accent": "#7aa2f7",
-    "fg": "#c0caf5",
-    "muted": "#565f89",
-    "error": "#f7768e"
-  },
-  {
-    "name": "catppuccin",
-    "bg": "#1e1e2e",
-    "panel": "#313244",
-    "accent": "#f5c2e7",
-    "fg": "#cdd6f4",
-    "muted": "#6c7086",
-    "error": "#f38ba8"
-  },
-  {
-    "name": "solarized",
-    "bg": "#002b36",
-    "panel": "#073642",
-    "accent": "#b58900",
-    "fg": "#839496",
-    "muted": "#586e75",
-    "error": "#dc322f"
-  },
-  {
-    "name": "manga",
-    "bg": "#0d0d0c",
-    "panel": "#1a1a18",
-    "accent": "#f2f0e6",
-    "fg": "#c9c7ba",
-    "muted": "#4a4944",
-    "error": "#8b2419"
-  },
-  {
-    "name": "chidori",
-    "bg": "#090c14",
-    "panel": "#131a2b",
-    "accent": "#4fd1ff",
-    "fg": "#eaf6ff",
-    "muted": "#35415c",
-    "error": "#ff7a3d"
-  },
-  {
-    "name": "gojo",
-    "bg": "#0a0f14",
-    "panel": "#131c22",
-    "accent": "#34e2e2",
-    "fg": "#eafffb",
-    "muted": "#3d5654",
-    "error": "#ff5c8a"
-  },
-  {
-    "name": "susanoo",
-    "bg": "#140d08",
-    "panel": "#241608",
-    "accent": "#ff9d2e",
-    "fg": "#f7e6cf",
-    "muted": "#6b5439",
-    "error": "#d1453b"
+// Mini typing demo: steps through WORDS one character at a time (with a
+// single simulated mistake + correction), then holds a short results line
+// before looping. Pauses when off-screen, hidden, or reduced motion is set.
+const miniDemo = document.querySelector('.mini-demo');
+if (miniDemo) {
+  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const span = (cls, text) => cls ? `<span class="${cls}">${esc(text)}</span>` : esc(text);
+  const muted = t => span('muted', t);
+  const accent = t => span('accent', t);
+  const err = t => span('err', t);
+
+  const WORD_POOL = [
+    'necessary', 'fact', 'ran', 'fast', 'sand', 'when', 'draw', 'multiply',
+    'family', 'cross', 'lie', 'too', 'position', 'speak', 'quick', 'water',
+    'floor', 'hair', 'are', 'rock', 'build', 'agent', 'pane', 'spare',
+    'flow', 'finger', 'light', 'string', 'focus', 'branch',
+  ];
+  const WORD_LEN = 10;
+  const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const section = miniDemo.closest('section');
+  const state = { wordIndex: 0, charIndex: 0, mistake: null, phase: 'typing' };
+  let WORDS = pickWords();
+  let mistakeSpot = pickMistake();
+  let timer = null;
+
+  function pickWords() {
+    const pool = [...WORD_POOL];
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    return pool.slice(0, WORD_LEN);
   }
-];
 
-function applyTheme(element, theme) {
-  for (const key of ['bg', 'fg', 'accent', 'muted', 'error', 'panel']) {
-    element.style.setProperty(`--${key}`, theme[key]);
+  function pickMistake() {
+    const candidates = WORDS.map((w, i) => ({ i, w })).filter(({ w }) => w.length >= 3);
+    const { i, w } = candidates[Math.floor(Math.random() * candidates.length)];
+    return { wordIndex: i, charIndex: Math.floor(Math.random() * (w.length - 2)) + 1 };
   }
-  element.querySelector('.demo-theme').textContent = theme.name;
-}
 
-const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
-const demos = [...document.querySelectorAll('[data-demo]')].map(element => {
-  element.innerHTML = `<div class="terminal-viewport"><pre class="terminal-frame" aria-hidden="true"></pre></div>
-    <p class="sr-only">Example rendered by Shunpo: a timed typing test, a corrected mistake, and results with speed, accuracy, a trend chart, and weak keys.</p>
-    <div class="demo-bottom"><span class="demo-theme"></span><button class="demo-toggle" type="button">[pause]</button></div>`;
-  const demo = { element, elapsed: motionPreference.matches ? 3600 : 0, paused: motionPreference.matches, themeIndex: 0 };
-  const button = element.querySelector('.demo-toggle');
-  button.textContent = demo.paused ? '[play]' : '[pause]';
-  button.addEventListener('click', () => {
-    demo.paused = !demo.paused;
-    button.textContent = demo.paused ? '[play]' : '[pause]';
-  });
-  applyTheme(element, themes[0]);
-  return demo;
-});
+  function header(seconds) {
+    return `${accent('瞬歩 shunpo')}  ${muted('✿')}  ${accent('time 30')}\n\n${accent(String(seconds))}\n\n`;
+  }
 
-function renderDemo(demo) {
-  const index = demo.elapsed >= 10000
-    ? demoFrames.length - 1
-    : Math.min(demoFrames.length - 2, Math.floor(demo.elapsed / 10000 * (demoFrames.length - 1)));
-  if (demo.frameIndex === index) return;
-  demo.element.querySelector('.terminal-frame').innerHTML = demoFrames[index];
-  demo.frameIndex = index;
-}
-
-for (const demo of demos) renderDemo(demo);
-
-let previousTick = performance.now();
-setInterval(() => {
-  const now = performance.now();
-  const delta = Math.min(now - previousTick, 200);
-  previousTick = now;
-  for (const demo of demos) {
-    if (demo.paused || document.hidden || demo.element.closest('section').hidden) continue;
-    demo.elapsed += delta * (demo.elapsed < 10000 ? 2 : 1);
-    if (demo.elapsed >= 12500) {
-      demo.elapsed = 0;
-      if (demo.element.dataset.demo === 'auto') {
-        demo.themeIndex = (demo.themeIndex + 1) % themes.length;
-        applyTheme(demo.element, themes[demo.themeIndex]);
+  function render() {
+    if (state.phase === 'result') {
+      miniDemo.innerHTML =
+        `${accent('瞬歩 shunpo')}\n\n` +
+        `${accent('new best!')}  ${muted('(was 96 wpm)')}\n\n` +
+        `${muted('wpm')}   ${muted('acc')}   ${muted('raw')}   ${muted('time')}\n` +
+        `${accent('104')}   ${accent('97%')}  ${accent('109')}  ${accent('30s')}\n\n` +
+        `${muted('tab')} restart   ${muted('esc')} quit`;
+      return;
+    }
+    const seconds = Math.max(30 - state.wordIndex * 3, 4);
+    let out = header(seconds);
+    for (let i = 0; i < WORD_LEN; i++) {
+      const w = WORDS[i];
+      if (i < state.wordIndex) {
+        out += esc(w) + ' ';
+      } else if (i === state.wordIndex) {
+        out += esc(w.slice(0, state.charIndex));
+        if (state.mistake) out += err(state.mistake);
+        out += accent('|') + muted(w.slice(state.charIndex)) + ' ';
+      } else {
+        out += muted(w) + ' ';
       }
     }
-    renderDemo(demo);
+    out += `\n\n${muted('esc')} quit   ${muted('enter')} restart   ${muted('tab')} settings`;
+    miniDemo.innerHTML = out;
   }
-}, 80);
 
-motionPreference.addEventListener('change', event => {
-  if (!event.matches) return;
-  for (const demo of demos) {
-    demo.paused = true;
-    demo.element.querySelector('.demo-toggle').textContent = '[play]';
+  function reset() {
+    state.wordIndex = 0;
+    state.charIndex = 0;
+    state.mistake = null;
+    state.phase = 'typing';
+    WORDS = pickWords();
+    mistakeSpot = pickMistake();
   }
-});
 
-for (const theme of themes) {
-  const button = document.createElement('button');
-  const label = document.createElement('span');
-  label.textContent = theme.name;
-  const swatches = document.createElement('span');
-  swatches.className = 'swatches';
-  swatches.setAttribute('aria-hidden', 'true');
-  for (const color of [theme.bg, theme.accent, theme.fg, theme.error]) {
-    const swatch = document.createElement('i');
-    swatch.style.backgroundColor = color;
-    swatches.append(swatch);
+  function step() {
+    const word = WORDS[state.wordIndex];
+    const atMistake = !mistakeSpot.used && state.wordIndex === mistakeSpot.wordIndex && state.charIndex === mistakeSpot.charIndex;
+    if (atMistake && !state.mistake) {
+      mistakeSpot.used = true;
+      state.mistake = word[state.charIndex] === 'e' ? 'r' : 'e';
+    } else {
+      if (state.mistake) state.mistake = null;
+      state.charIndex++;
+      if (state.charIndex >= word.length) {
+        state.wordIndex++;
+        state.charIndex = 0;
+        if (state.wordIndex >= WORD_LEN) state.phase = 'result';
+      }
+    }
+    render();
   }
-  button.append(label, swatches);
-  button.setAttribute('aria-pressed', String(theme.name === 'serika'));
-  button.addEventListener('click', () => {
-    document.querySelectorAll('#theme-options button').forEach(option => option.setAttribute('aria-pressed', String(option === button)));
-    applyTheme(document.querySelector('[data-demo="selected"]'), theme);
-    const command = `shunpo -theme ${theme.name}`;
-    document.querySelector('#theme-command').textContent = command;
-    document.querySelector('#copy-theme').dataset.copy = command;
+
+  function schedule() {
+    if (motionPreference.matches) return;
+    const delay = state.phase === 'result' ? 2600 : (state.mistake ? 260 : 60 + Math.random() * 90);
+    timer = setTimeout(() => {
+      if (!document.hidden && !section.hidden) {
+        if (state.phase === 'result') reset();
+        step();
+      }
+      schedule();
+    }, delay);
+  }
+
+  render();
+  if (motionPreference.matches) {
+    state.phase = 'result';
+    render();
+  } else {
+    schedule();
+  }
+
+  motionPreference.addEventListener('change', event => {
+    if (!event.matches) return;
+    clearTimeout(timer);
+    state.phase = 'result';
+    render();
   });
-  document.querySelector('#theme-options').append(button);
 }
