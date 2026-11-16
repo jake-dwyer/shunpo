@@ -43,10 +43,22 @@ Everything is keyboard-driven - no mouse required. With the palette open:
 
 - `t` / `w` - switch between time mode and word-count mode
 - `1`-`5` - pick a preset for whichever mode is active
-- `c` - cycle color theme (serika, dracula, nord, gruvbox, monokai, tokyonight, catppuccin, solarized)
+- `c` - cycle color theme (serika, dracula, nord, gruvbox, monokai, tokyonight, catppuccin, solarized, manga, chidori, gojo, susanoo)
+- `e` - open the theme editor for the active theme
 - `enter` / `esc` / `tab` - close the palette
 
 Settings apply immediately as you change them, so you can keep adjusting before closing the palette. This all lives behind an explicit `tab` press rather than always-on hotkeys - letting `1`-`5`/`t`/`w` mean something while you're mid-word would hijack real keystrokes any time a test word happens to start with one of those characters.
+
+### Theme editor (`e`, from the settings palette)
+
+Every theme is five colors - background, foreground, muted text, accent, and error - and any of them can be tuned and saved as a per-theme override:
+
+- `up` / `down` - move between the five fields
+- `enter` - type a replacement hex value for the selected field; it applies live as you type
+- `r` - reset the theme back to its factory colors (drops the saved override)
+- `esc` - save the override and close, back to the settings palette
+
+Overrides are saved per theme, so switching themes with `c` and coming back later keeps whatever you tuned.
 
 ## Stats
 
