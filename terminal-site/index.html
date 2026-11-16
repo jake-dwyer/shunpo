@@ -1,96 +1,17 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#000000">
-  <meta name="description" content="Flash step. A minimalist typing test for your terminal. Get faster while your build gets slower.">
-  <title>shunpo - flash step.</title>
-  <link rel="stylesheet" href="style.css">
-  <script src="app.js" defer></script>
-</head>
-<body>
-  <header>
-    <nav aria-label="Main navigation" id="tabs">
-      <div class="tab active" draggable="true" style="--dot:#e2b714">
-        <a href="#terminal" aria-current="page" draggable="false"><span class="tab-dot" aria-hidden="true"></span>shunpo<span class="cursor" aria-hidden="true">_</span></a>
-        <button class="tab-close" aria-label="Close shunpo tab">×</button>
-      </div>
-      <div class="tab" draggable="true" style="--dot:#4fd1ff">
-        <a href="#usage" draggable="false"><span class="tab-dot" aria-hidden="true"></span>usage</a>
-        <button class="tab-close" aria-label="Close usage tab">×</button>
-      </div>
-      <div class="tab" draggable="true" style="--dot:#ff5c8a">
-        <a href="#readme" draggable="false"><span class="tab-dot" aria-hidden="true"></span>readme</a>
-        <button class="tab-close" aria-label="Close readme tab">×</button>
-      </div>
-      <button class="tab-add" tabindex="-1" aria-hidden="true">+</button>
-    </nav>
-    <a class="source" href="https://github.com/jake-dwyer/shunpo" target="_blank" rel="noreferrer">github<svg class="chevron" width="9" height="9" viewBox="0 0 9 9" aria-hidden="true"><path d="M2 1.5H7.5V7M7.5 1.5L1.5 7.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
-  </header>
-  <div id="split-hint" aria-hidden="true" hidden></div>
-  <main>
-    <section id="terminal" aria-label="Install shunpo">
-      <pre class="speedlines" aria-hidden="true">                               ╱    ╱     ╱    ╱    ╱  ╱       ╱╱  ╱    ╱ ╱
-                              ╱    ╱     ╱    ╱    ╱  ╱       ╱╱  ╱    ╱
-                             ╱    ╱     ╱    ╱ ╱  ╱  ╱        ╱  ╱    ╱
-                            ╱    ╱     ╱    ╱ ╱  ╱  ╱        ╱  ╱    ╱
-                         ╱ ╱    ╱     ╱    ╱ ╱  ╱    ╱      ╱  ╱    ╱    ╱
-                        ╱ ╱    ╱     ╱    ╱ ╱  ╱    ╱      ╱  ╱         ╱
-                       ╱ ╱    ╱     ╱    ╱ ╱  ╱    ╱      ╱  ╱         ╱
-                      ╱ ╱    ╱     ╱    ╱ ╱       ╱      ╱  ╱         ╱
-                     ╱ ╱    ╱     ╱ ╱  ╱ ╱       ╱      ╱            ╱
-                    ╱ ╱    ╱     ╱ ╱  ╱ ╱       ╱      ╱            ╱
-                   ╱ ╱    ╱     ╱ ╱    ╱       ╱      ╱            ╱
-                  ╱ ╱    ╱     ╱ ╱    ╱       ╱        ╱          ╱
-             ╱   ╱ ╱    ╱     ╱ ╱    ╱       ╱        ╱
-            ╱   ╱ ╱    ╱ ╱     ╱    ╱       ╱        ╱
-           ╱   ╱ ╱    ╱ ╱     ╱    ╱                ╱
-          ╱   ╱ ╱      ╱     ╱    ╱                ╱
-         ╱   ╱ ╱      ╱     ╱                     ╱
-        ╱   ╱ ╱      ╱     ╱
-       ╱   ╱        ╱     ╱
-      ╱   ╱        ╱
-     ╱            ╱
-    ╱</pre>
-      <ol class="code">
-        <li class="comment"># flash step. a typing test for your terminal.</li>
-        <li class="blank" aria-hidden="true">&nbsp;</li>
-        <li class="comment"># for the moments between builds, deploys,<br>and whatever your agent is doing.</li>
-        <li class="blank" aria-hidden="true">&nbsp;</li>
-        <li class="comment"># install with go</li>
-        <li><div class="command"><code>go install github.com/jake-dwyer/shunpo@latest</code><button class="copy" data-copy="go install github.com/jake-dwyer/shunpo@latest" aria-label="Copy install command">[copy]</button></div></li>
-        <li class="blank" aria-hidden="true">&nbsp;</li>
-        <li class="comment"># open a spare pane. make a little progress.</li>
-        <li><div class="command"><code>shunpo</code><span class="block-cursor" aria-hidden="true"></span></div></li>
-        <li class="blank" aria-hidden="true">&nbsp;</li>
-        <li class="comment"># a quick look</li>
-        <li><pre class="mini-demo" aria-hidden="true"></pre><span class="sr-only">Example of shunpo: words typed with a corrected mistake, then results.</span></li>
-      </ol>
-    </section>
-    <section id="usage" aria-label="Usage" hidden>
-      <ol class="code">
-        <li><code>shunpo</code><span class="annotation"># 30 seconds on your first run</span></li>
-        <li><code>shunpo -time 60</code><span class="annotation"># take a minute</span></li>
-        <li><code>shunpo -words 50</code><span class="annotation"># finish 50 words</span></li>
-        <li><code>shunpo -theme dracula</code><span class="annotation"># set the mood</span></li>
-        <li class="blank">&nbsp;</li>
-        <li class="comment"># your keyboard is all you need</li>
-        <li><kbd>tab</kbd><span class="annotation">settings · restart from results</span></li>
-        <li><kbd>enter</kbd><span class="annotation">fresh words, same settings</span></li>
-        <li><kbd>esc</kbd><span class="annotation">quit · close settings when open</span></li>
-      </ol>
-    </section>
-    <section id="readme" aria-label="About shunpo" hidden>
-      <ol class="code">
-        <li class="comment"># a typing test for your terminal,<br>built for the moments between builds,<br>deploys, and whatever your agent is doing.</li>
-        <li class="blank">&nbsp;</li>
-        <li class="comment"># built with go + bubble tea</li>
-        <li class="blank">&nbsp;</li>
-        <li><a href="https://github.com/jake-dwyer/shunpo"><strong>shunpo <span class="muted">/ 瞬歩</span></strong><svg class="chevron" width="9" height="9" viewBox="0 0 9 9" aria-hidden="true"><path d="M2 1.5H7.5V7M7.5 1.5L1.5 7.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></a></li>
-      </ol>
-    </section>
-  </main>
-  <div id="announcement" class="sr-only" role="status" aria-live="polite"></div>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#000000" />
+    <meta
+      name="description"
+      content="Flash step. A minimalist typing test for your terminal. Get faster while your build gets slower."
+    />
+    <title>shunpo - flash step.</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
 </html>
